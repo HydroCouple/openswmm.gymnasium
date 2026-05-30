@@ -68,6 +68,7 @@ docs = [
     "myst-parser>=3.0",
     "sphinx-autodoc-typehints",
     "sphinx-epytext>=0.0.4",  # epytext docstring rendering — plan §13
+    "sphinxcontrib-mermaid>=1.0",  # ```mermaid``` diagrams in README/landing page
 ]
 
 [project.urls]
