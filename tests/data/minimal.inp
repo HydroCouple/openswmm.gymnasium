@@ -1,0 +1,85 @@
+[TITLE]
+Minimal test fixture for openswmm.gymnasium.
+1 junction (J1), 1 outfall (O1), 1 conduit (C1).
+Externally-supplied inflow via [INFLOWS] + [TIMESERIES].
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+LINK_OFFSETS         DEPTH
+MIN_SLOPE            0
+ALLOW_PONDING        NO
+SKIP_STEADY_STATE    NO
+
+START_DATE           01/01/2024
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2024
+REPORT_START_TIME    00:00:00
+END_DATE             01/01/2024
+END_TIME             00:30:00
+REPORT_STEP          00:01:00
+WET_STEP             00:01:00
+DRY_STEP             00:01:00
+ROUTING_STEP         0:00:15
+RULE_STEP            00:00:00
+
+INERTIAL_DAMPING     PARTIAL
+NORMAL_FLOW_LIMITED  BOTH
+FORCE_MAIN_EQUATION  H-W
+VARIABLE_STEP        0.75
+LENGTHENING_STEP     0
+MIN_SURFAREA         12.566
+MAX_TRIALS           8
+HEAD_TOLERANCE       0.005
+SYS_FLOW_TOL         5
+LAT_FLOW_TOL         5
+MINIMUM_STEP         0.5
+THREADS              1
+
+[JUNCTIONS]
+;;Name  Invert  MaxDepth  InitDepth  SurDepth  Aponded
+J1      0       5         0          0         0
+
+[OUTFALLS]
+;;Name  Invert  Type   StageData  Gated
+O1      0       FREE              NO
+
+[CONDUITS]
+;;Name  FromNode  ToNode  Length  Roughness  InOffset  OutOffset  InitFlow  MaxFlow
+C1      J1        O1      100     0.01       0         0          0         0
+
+[XSECTIONS]
+;;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels
+C1      CIRCULAR  1.0    0      0      0      1
+
+[INFLOWS]
+;;Node  Constituent  TimeSeries  Type  Mfactor  Sfactor  Baseline  Pattern
+J1      FLOW         INFLOW_TS   FLOW  1.0      1.0      0
+
+[TIMESERIES]
+;;Name      Date  Time   Value
+INFLOW_TS         00:00  0
+INFLOW_TS         00:05  2
+INFLOW_TS         00:15  2
+INFLOW_TS         00:20  0
+INFLOW_TS         00:30  0
+
+[REPORT]
+INPUT       NO
+CONTROLS    NO
+SUBCATCHMENTS NONE
+NODES       ALL
+LINKS       ALL
+
+[MAP]
+DIMENSIONS  0  0  1000  1000
+UNITS       Feet
+
+[COORDINATES]
+;;Node  X-Coord  Y-Coord
+J1      100      500
+O1      900      500
+
+[VERTICES]
+;;Link  X-Coord  Y-Coord

@@ -1,0 +1,432 @@
+"""
+Composable observation builder.
+
+Plan §4. Each collector reads a single feature kind (node depths, link
+flows, etc.) from the engine; the builder concatenates them into a
+flat float32 vector.
+
+P2 ships ten collectors covering the most common SWMM-RL feature sets:
+node depths/heads/inflows/overflows, link flows/depths/settings,
+subcatchment runoff, gage rainfall, and a clock collector. Forecast
+injection and pollutant-concentration collectors land in P5
+(forecast wrapper) and the pollutant phase respectively.
+
+@author: Caleb Buahin
+@copyright: Copyright (c) 2026 Caleb Buahin
+@license: MIT
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+import numpy as np
+from gymnasium import spaces
+
+from openswmm_gymnasium._engine import SolverAdapter
+
+# =============================================================================
+# Internal collector base + helpers
+# =============================================================================
+
+
+def _require_ids(name: str, ids: Sequence[str]) -> list[str]:
+    if not ids:
+        raise ValueError(f"{name} requires at least one id")
+    return list(ids)
+
+
+class _ScalarReadCollector:
+    """Shared base for collectors that read one scalar per element index.
+
+    Subclasses set L{_kind_label}, L{_resolve_idxs}, L{_read_scalar}.
+
+    @ivar _ids: Symbolic element IDs.
+    @type _ids: list[str]
+    @ivar _idxs: Engine indices, resolved by L{bind}.
+    @type _idxs: list[int] or C{None}
+    """
+
+    _kind_label: str = "_ScalarReadCollector"
+
+    def __init__(self, ids: Sequence[str]) -> None:
+        self._ids: list[str] = _require_ids(self._kind_label, ids)
+        self._idxs: list[int] | None = None
+
+    @property
+    def size(self) -> int:
+        return len(self._ids)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._idxs = self._resolve_idxs(adapter)
+
+    def collect(self, adapter: SolverAdapter) -> np.ndarray:
+        assert self._idxs is not None, "bind() before collect()"
+        return np.fromiter(
+            (self._read_scalar(adapter, i) for i in self._idxs),
+            dtype=np.float32,
+            count=len(self._idxs),
+        )
+
+    # Subclass hooks ------------------------------------------------------
+
+    def _resolve_idxs(self, adapter: SolverAdapter) -> list[int]:
+        raise NotImplementedError
+
+    def _read_scalar(self, adapter: SolverAdapter, idx: int) -> float:
+        raise NotImplementedError
+
+
+# =============================================================================
+# Node collectors
+# =============================================================================
+
+
+class _NodeDepthCollector(_ScalarReadCollector):
+    """Instantaneous water depth at each node."""
+
+    _kind_label = "add_node_depths"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_depth(idx)
+
+
+class _NodeHeadCollector(_ScalarReadCollector):
+    """Instantaneous hydraulic head at each node."""
+
+    _kind_label = "add_node_heads"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_head(idx)
+
+
+class _NodeInflowCollector(_ScalarReadCollector):
+    """Total inflow rate at each node."""
+
+    _kind_label = "add_node_inflows"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_inflow(idx)
+
+
+class _NodeOverflowCollector(_ScalarReadCollector):
+    """Overflow (flooding) rate at each node."""
+
+    _kind_label = "add_node_overflows"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_overflow(idx)
+
+
+# =============================================================================
+# Link collectors
+# =============================================================================
+
+
+class _LinkFlowCollector(_ScalarReadCollector):
+    """Instantaneous flow through each link."""
+
+    _kind_label = "add_link_flows"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_flow(idx)
+
+
+class _LinkDepthCollector(_ScalarReadCollector):
+    """Instantaneous depth in each link."""
+
+    _kind_label = "add_link_depths"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_depth(idx)
+
+
+class _LinkSettingCollector(_ScalarReadCollector):
+    """Current control setting C{[0, 1]} for each link.
+
+    Useful for closed-loop RL agents that need to observe the prior
+    action they (or another controller) applied.
+    """
+
+    _kind_label = "add_link_settings"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_control_setting(idx)
+
+
+# =============================================================================
+# Subcatchment + rain collectors
+# =============================================================================
+
+
+class _SubcatchRunoffCollector(_ScalarReadCollector):
+    """Runoff rate from each subcatchment."""
+
+    _kind_label = "add_subcatch_runoff"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.subcatchments.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.subcatchments.get_runoff(idx)
+
+
+class _RainfallCollector(_ScalarReadCollector):
+    """Rainfall intensity at each rain gage."""
+
+    _kind_label = "add_rainfall"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.gages.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.gages.get_rainfall(idx)
+
+
+# =============================================================================
+# Clock collector (no per-element repetition)
+# =============================================================================
+
+
+_CLOCK_FEATURES = ("hour_sin", "hour_cos", "elapsed_frac")
+
+
+class _ClockCollector:
+    """Time-of-day + episode-progress features.
+
+    Three features in fixed order:
+
+      - C{hour_sin} — C{sin(2π * hour_of_day / 24)}.
+      - C{hour_cos} — C{cos(2π * hour_of_day / 24)}.
+      - C{elapsed_frac} — C{(current - start) / (end - start)}, in
+        C{[0, 1]}.
+
+    The hour-of-day uses the fractional part of the engine's OADate
+    (1.0 == 1 day), so encoding is correct regardless of the model's
+    start date.
+
+    @ivar _features: Subset and order of features to return.
+    @type _features: tuple[str, ...]
+    """
+
+    def __init__(self, features: Sequence[str] | None = None) -> None:
+        if features is None:
+            features = _CLOCK_FEATURES
+        unknown = set(features) - set(_CLOCK_FEATURES)
+        if unknown:
+            raise ValueError(
+                f"Unknown clock features: {sorted(unknown)}; valid: {list(_CLOCK_FEATURES)}"
+            )
+        self._features: tuple[str, ...] = tuple(features)
+        self._adapter: SolverAdapter | None = None
+
+    @property
+    def size(self) -> int:
+        return len(self._features)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        # No symbolic IDs to resolve; we just stash the adapter for
+        # later constant-time access to start/end.
+        self._adapter = adapter
+
+    def collect(self, adapter: SolverAdapter) -> np.ndarray:
+        assert self._adapter is not None, "bind() before collect()"
+        current = adapter.current_time
+        start = adapter.start_time
+        end = adapter.end_time
+        # OADate fractional part = time-of-day in days.
+        hour_of_day = (current - math.floor(current)) * 24.0
+        angle = 2.0 * math.pi * hour_of_day / 24.0
+        span = end - start
+        if span <= 0.0:
+            elapsed_frac = 0.0
+        else:
+            elapsed_frac = max(0.0, min(1.0, (current - start) / span))
+        values = {
+            "hour_sin": math.sin(angle),
+            "hour_cos": math.cos(angle),
+            "elapsed_frac": elapsed_frac,
+        }
+        return np.fromiter(
+            (values[f] for f in self._features),
+            dtype=np.float32,
+            count=len(self._features),
+        )
+
+
+# =============================================================================
+# Builder
+# =============================================================================
+
+
+class ObservationBuilder:
+    """Fluent composer for the env's observation space.
+
+    Returned space is a flat L{gymnasium.spaces.Box} of dtype float32
+    with shape C{(sum(collector.size),)}. Bounds are
+    C{[-inf, +inf]}; callers wishing finite bounds should wrap with a
+    L{gymnasium.wrappers.NormalizeObservation} or supply their own
+    L{gymnasium.spaces.Box} via a subclass in a later phase.
+
+    Example::
+
+        obs = (ObservationBuilder()
+               .add_node_depths(["J1"])
+               .add_link_flows(["C1"])
+               .add_clock())
+
+    @ivar _collectors: Ordered list of bound-and-collect units.
+    @type _collectors: list
+    """
+
+    def __init__(self) -> None:
+        self._collectors: list = []
+
+    # ----- Node features -------------------------------------------------
+
+    def add_node_depths(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node-depth collector.
+
+        @param node_ids: Node IDs whose depths to observe.
+        @type node_ids: sequence of str
+        @return: This builder, for chaining.
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeDepthCollector(node_ids))
+        return self
+
+    def add_node_heads(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node-head collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeHeadCollector(node_ids))
+        return self
+
+    def add_node_inflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node-inflow collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeInflowCollector(node_ids))
+        return self
+
+    def add_node_overflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node-overflow (flooding rate) collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeOverflowCollector(node_ids))
+        return self
+
+    # ----- Link features -------------------------------------------------
+
+    def add_link_flows(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link-flow collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkFlowCollector(link_ids))
+        return self
+
+    def add_link_depths(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link-depth collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkDepthCollector(link_ids))
+        return self
+
+    def add_link_settings(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link-control-setting collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkSettingCollector(link_ids))
+        return self
+
+    # ----- Subcatchment + rain features ---------------------------------
+
+    def add_subcatch_runoff(self, subcatch_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a subcatchment-runoff collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_SubcatchRunoffCollector(subcatch_ids))
+        return self
+
+    def add_rainfall(self, gage_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a rain-gage rainfall collector.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_RainfallCollector(gage_ids))
+        return self
+
+    # ----- Time features -------------------------------------------------
+
+    def add_clock(self, features: Sequence[str] | None = None) -> ObservationBuilder:
+        """Append a clock collector.
+
+        @param features: Subset of C{("hour_sin", "hour_cos",
+            "elapsed_frac")}. Defaults to all three.
+        @type features: sequence of str or C{None}
+        @rtype: L{ObservationBuilder}
+        @raise ValueError: If C{features} contains an unrecognised key.
+        """
+        self._collectors.append(_ClockCollector(features))
+        return self
+
+    # ----- Build / bind / collect ---------------------------------------
+
+    def space(self) -> spaces.Box:
+        """Construct the env's observation space.
+
+        @rtype: L{gymnasium.spaces.Box}
+        @raise ValueError: If no collectors have been added.
+        """
+        if not self._collectors:
+            raise ValueError("ObservationBuilder is empty; add at least one collector")
+        size = sum(c.size for c in self._collectors)
+        return spaces.Box(low=-np.inf, high=np.inf, shape=(size,), dtype=np.float32)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Resolve symbolic IDs in every collector.
+
+        @param adapter: Adapter wrapping the open solver.
+        @type adapter: L{SolverAdapter}
+        """
+        for c in self._collectors:
+            c.bind(adapter)
+
+    def collect(self, adapter: SolverAdapter) -> np.ndarray:
+        """Read the current observation from the engine.
+
+        @param adapter: Adapter wrapping the running solver.
+        @type adapter: L{SolverAdapter}
+        @return: 1-D float32 array matching L{space}.
+        @rtype: numpy.ndarray
+        """
+        return np.concatenate([c.collect(adapter) for c in self._collectors])
