@@ -1,0 +1,128 @@
+# OpenSWMM Gymnasium — package metadata + dev tooling configuration.
+#
+# Authoritative implementation plan: docs/IMPLEMENTATION_PLAN.md.
+# Per §0 #7: targets the handle-based, thread-safe openswmm.engine v6 only.
+# Per §0 Q4: bundled benchmarks are 10 contrived MO-RL scenarios (§6A).
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openswmm.gymnasium"
+version = "0.1.0.dev0"
+description = "Farama Gymnasium environments for SWMM CIP + RTC reinforcement learning"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Caleb Buahin", email = "caleb.buahin@gmail.com" },
+]
+keywords = [
+    "SWMM",
+    "stormwater",
+    "hydrology",
+    "hydraulics",
+    "reinforcement-learning",
+    "gymnasium",
+    "multi-objective-optimization",
+    "real-time-control",
+    "capital-improvement-plan",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Hydrology",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
+dependencies = [
+    "gymnasium>=1.0",
+    "numpy>=1.21",
+    # openswmm.engine v6 — handle-based, thread-safe. Legacy v5 singleton
+    # solver under openswmm.legacy.engine is NOT a fallback. See plan §0 #7 / §2.3.
+    "openswmm>=6.0.0.dev2",
+]
+
+[project.optional-dependencies]
+mo       = ["mo-gymnasium>=1.0"]            # multi-objective extension
+platypus = ["platypus-opt>=1.2"]            # sole supported MOO adapter (plan §5.4)
+viz      = ["plotly>=5.18"]                 # sole supported plot backend (plan §5.5)
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "ruff==0.15.14",
+]
+docs = [
+    "sphinx>=7.0",
+    "pydata-sphinx-theme>=0.15",
+    "myst-parser>=3.0",
+    "sphinx-autodoc-typehints",
+    "sphinx-epytext>=0.0.4",  # epytext docstring rendering — plan §13
+    "sphinxcontrib-mermaid>=1.0",  # ```mermaid``` diagrams in README/landing page
+]
+
+[project.urls]
+Homepage      = "https://github.com/HydroCouple/openswmm.gymnasium"
+Documentation = "https://hydrocouple.github.io/openswmm.gymnasium"
+Repository    = "https://github.com/HydroCouple/openswmm.gymnasium"
+Issues        = "https://github.com/HydroCouple/openswmm.gymnasium/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openswmm_gymnasium"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    # See plan §8.2 — the engine is a required dep, so integration tests run
+    # by default. This marker is retained as a no-op for symmetry with the
+    # openswmm.mcp test conventions.
+    "integration: end-to-end tests against the real openswmm.engine.Solver",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow assert False in tests
+
+# ---------------------------------------------------------------------------
+# coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["openswmm_gymnasium"]
+omit = ["*/benchmarks/*/scenario.inp", "*/_autogen/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
