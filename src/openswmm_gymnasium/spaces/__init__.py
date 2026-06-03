@@ -33,10 +33,11 @@ from openswmm_gymnasium.spaces.design import (
     LinkRoughness,
     NodeMaxDepth,
 )
-from openswmm_gymnasium.spaces.runtime import OrificeSetting
+from openswmm_gymnasium.spaces.runtime import NodeLateralInflow, OrificeSetting
 
 __all__ = [
     "OrificeSetting",
+    "NodeLateralInflow",
     "DesignActionFactory",
     "LinkRoughness",
     "LinkLength",

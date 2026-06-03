@@ -121,18 +121,20 @@ class SwmmRTCEnv(gym.Env):
         runtime_subspaces: dict[str, spaces.Space] = {
             f.name: f.space for f in self._runtime_factories
         }
-        self.action_space = spaces.Dict(
-            {
-                "design": spaces.Dict({}),  # plan §3 contract; empty here
-                "runtime": spaces.Dict(runtime_subspaces),
-            }
-        )
+        # Gymnasium forbids empty Dict spaces (``check_env`` rejects them),
+        # so we expose only the non-empty action halves. An RTC env carries
+        # just the ``"runtime"`` key; ``step`` reads it via ``action.get``.
+        self.action_space = spaces.Dict({"runtime": spaces.Dict(runtime_subspaces)})
         self.observation_space = self._observation_builder.space()
 
         # ---- Per-episode state ---------------------------------------
         self._adapter: SolverAdapter | None = None
         self._prev_elapsed_days: float = 0.0
         self._env_step_count: int = 0
+        # Unit system of the loaded model, recorded at reset(). Engine
+        # getters return project units, so rewards/observations scaled by
+        # physical magnitudes must not silently reuse another system's tuning.
+        self._unit_system: str | None = None
 
     # ------------------------------------------------------------------
     # Gymnasium API
@@ -164,10 +166,12 @@ class SwmmRTCEnv(gym.Env):
             self._adapter.close()
             self._adapter = None
 
-        # Open + initialize.
+        # Open + initialize + start (start transitions the engine to
+        # RUNNING; step() is guarded on that state).
         self._adapter = SolverAdapter(self._inp_path, self._rpt_path, self._out_path)
         self._adapter.open()
         self._adapter.initialize()
+        self._adapter.start()
 
         # Bind all symbolic IDs against the freshly-opened engine.
         for f in self._runtime_factories:
@@ -180,8 +184,24 @@ class SwmmRTCEnv(gym.Env):
         self._prev_elapsed_days = self._adapter.elapsed
         self._env_step_count = 0
 
+        # Record the model's unit system once per episode. If an episode was
+        # previously run under a different system, fail loudly rather than
+        # silently mis-scaling rewards/observations tuned for the old one.
+        current_units = self._adapter.unit_system
+        if self._unit_system is not None and current_units != self._unit_system:
+            raise RuntimeError(
+                f"Model unit system changed across episodes: "
+                f"{self._unit_system!r} -> {current_units!r}. Observation "
+                f"and reward scaling are unit-dependent; recreate the env."
+            )
+        self._unit_system = current_units
+
         obs = self._observation_builder.collect(self._adapter)
-        info: dict[str, Any] = {"elapsed_days": self._adapter.elapsed}
+        info: dict[str, Any] = {
+            "elapsed_days": self._adapter.elapsed,
+            "unit_system": self._unit_system,
+            "flow_units": self._adapter.flow_units,
+        }
         return obs, info
 
     def step(self, action: dict[str, Any]) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:

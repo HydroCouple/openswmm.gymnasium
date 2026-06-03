@@ -53,6 +53,7 @@ class _ScalarReadCollector:
     def __init__(self, ids: Sequence[str]) -> None:
         self._ids: list[str] = _require_ids(self._kind_label, ids)
         self._idxs: list[int] | None = None
+        self._idx_arr = None
 
     @property
     def size(self) -> int:
@@ -60,9 +61,18 @@ class _ScalarReadCollector:
 
     def bind(self, adapter: SolverAdapter) -> None:
         self._idxs = self._resolve_idxs(adapter)
+        # Pre-built index array for the bulk gather path (avoids rebuilding
+        # it every step).
+        self._idx_arr = np.asarray(self._idxs, dtype=np.intp)
 
     def collect(self, adapter: SolverAdapter) -> np.ndarray:
         assert self._idxs is not None, "bind() before collect()"
+        # Fast path: one vectorized engine read + NumPy gather, instead of
+        # N scalar FFI round-trips. Falls back to the scalar loop when a
+        # collector has no bulk source.
+        arr = self._bulk_array(adapter)
+        if arr is not None:
+            return np.asarray(arr, dtype=np.float32)[self._idx_arr]
         return np.fromiter(
             (self._read_scalar(adapter, i) for i in self._idxs),
             dtype=np.float32,
@@ -76,6 +86,16 @@ class _ScalarReadCollector:
 
     def _read_scalar(self, adapter: SolverAdapter, idx: int) -> float:
         raise NotImplementedError
+
+    def _bulk_array(self, adapter: SolverAdapter):
+        """Whole-network array for the bulk gather path, or C{None}.
+
+        Override in subclasses backed by an engine bulk getter. Returning
+        C{None} (the default) keeps the scalar per-element fallback.
+
+        @rtype: numpy.ndarray or None
+        """
+        return None
 
 
 # =============================================================================
@@ -94,6 +114,9 @@ class _NodeDepthCollector(_ScalarReadCollector):
     def _read_scalar(self, adapter, idx):
         return adapter.nodes.get_depth(idx)
 
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("depths")
+
 
 class _NodeHeadCollector(_ScalarReadCollector):
     """Instantaneous hydraulic head at each node."""
@@ -105,6 +128,9 @@ class _NodeHeadCollector(_ScalarReadCollector):
 
     def _read_scalar(self, adapter, idx):
         return adapter.nodes.get_head(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("heads")
 
 
 class _NodeInflowCollector(_ScalarReadCollector):
@@ -118,6 +144,9 @@ class _NodeInflowCollector(_ScalarReadCollector):
     def _read_scalar(self, adapter, idx):
         return adapter.nodes.get_inflow(idx)
 
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("inflows")
+
 
 class _NodeOverflowCollector(_ScalarReadCollector):
     """Overflow (flooding) rate at each node."""
@@ -129,6 +158,39 @@ class _NodeOverflowCollector(_ScalarReadCollector):
 
     def _read_scalar(self, adapter, idx):
         return adapter.nodes.get_overflow(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("overflows")
+
+
+class _NodeVolumeCollector(_ScalarReadCollector):
+    """Stored water volume at each node (project volume units)."""
+
+    _kind_label = "add_node_volumes"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_volume(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("volumes")
+
+
+class _NodeLateralInflowCollector(_ScalarReadCollector):
+    """Externally-applied lateral inflow at each node (project flow units)."""
+
+    _kind_label = "add_node_lateral_inflows"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_lateral_inflow(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.nodes.array("lateral_inflows")
 
 
 # =============================================================================
@@ -147,6 +209,9 @@ class _LinkFlowCollector(_ScalarReadCollector):
     def _read_scalar(self, adapter, idx):
         return adapter.links.get_flow(idx)
 
+    def _bulk_array(self, adapter):
+        return adapter.links.array("flows")
+
 
 class _LinkDepthCollector(_ScalarReadCollector):
     """Instantaneous depth in each link."""
@@ -158,6 +223,54 @@ class _LinkDepthCollector(_ScalarReadCollector):
 
     def _read_scalar(self, adapter, idx):
         return adapter.links.get_depth(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.links.array("depths")
+
+
+class _LinkVelocityCollector(_ScalarReadCollector):
+    """Flow velocity in each link (project length/time units)."""
+
+    _kind_label = "add_link_velocities"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_velocity(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.links.array("velocities")
+
+
+class _LinkCapacityCollector(_ScalarReadCollector):
+    """Fractional capacity / filling C{[0, 1]} of each link."""
+
+    _kind_label = "add_link_capacities"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_capacity(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.links.array("capacities")
+
+
+class _LinkVolumeCollector(_ScalarReadCollector):
+    """Stored water volume in each link (project volume units)."""
+
+    _kind_label = "add_link_volumes"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_volume(idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.links.array("volumes")
 
 
 class _LinkSettingCollector(_ScalarReadCollector):
@@ -341,6 +454,22 @@ class ObservationBuilder:
         self._collectors.append(_NodeOverflowCollector(node_ids))
         return self
 
+    def add_node_volumes(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node stored-volume collector (project volume units).
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeVolumeCollector(node_ids))
+        return self
+
+    def add_node_lateral_inflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a node lateral-inflow collector (project flow units).
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_NodeLateralInflowCollector(node_ids))
+        return self
+
     # ----- Link features -------------------------------------------------
 
     def add_link_flows(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -365,6 +494,30 @@ class ObservationBuilder:
         @rtype: L{ObservationBuilder}
         """
         self._collectors.append(_LinkSettingCollector(link_ids))
+        return self
+
+    def add_link_velocities(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link-velocity collector (project length/time units).
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkVelocityCollector(link_ids))
+        return self
+
+    def add_link_capacities(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link fractional-capacity collector C{[0, 1]}.
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkCapacityCollector(link_ids))
+        return self
+
+    def add_link_volumes(self, link_ids: Sequence[str]) -> ObservationBuilder:
+        """Append a link stored-volume collector (project volume units).
+
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkVolumeCollector(link_ids))
         return self
 
     # ----- Subcatchment + rain features ---------------------------------
