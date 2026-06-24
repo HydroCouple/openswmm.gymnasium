@@ -184,6 +184,10 @@ class SwmmCIPEnv(gym.Env):
             elapsed = adapter.elapsed
             dt_seconds = (elapsed - prev_elapsed_days) * _SECONDS_PER_DAY
             prev_elapsed_days = elapsed
+            # The engine resets ``elapsed`` to 0 on the final step; the negative
+            # dt would flip reward-term signs, so drop it.
+            if dt_seconds < 0.0:
+                dt_seconds = 0.0
             for term in self._reward_terms:
                 c = float(term.step(adapter, dt_seconds))
                 components[term.name] += c

@@ -232,6 +232,10 @@ class SwmmRTCEnv(gym.Env):
         elapsed_days = self._adapter.elapsed
         dt_seconds = (elapsed_days - self._prev_elapsed_days) * _SECONDS_PER_DAY
         self._prev_elapsed_days = elapsed_days
+        # The engine resets ``elapsed`` to 0 on the final step that ends the run;
+        # the resulting negative dt would flip reward-term signs, so drop it.
+        if dt_seconds < 0.0:
+            dt_seconds = 0.0
 
         # Compute reward.
         components: dict[str, float] = {}

@@ -24,6 +24,7 @@ from openswmm_gymnasium._version import __version__
 # ``gymnasium.make("OpenSWMM/...")`` for the canonical construction path.
 from openswmm_gymnasium.envs import (
     SwmmCIPEnv,
+    SwmmControlEnv,
     SwmmJointCIPRTCEnv,
     SwmmMORTCEnv,
     SwmmRTCEnv,
@@ -68,4 +69,5 @@ __all__ = [
     "SwmmCIPEnv",
     "SwmmJointCIPRTCEnv",
     "SwmmMORTCEnv",
+    "SwmmControlEnv",
 ]

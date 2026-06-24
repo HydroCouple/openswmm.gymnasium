@@ -24,9 +24,12 @@ from openswmm_gymnasium.rewards.terms import (
     CSOVolume,
     FloodingVolume,
     PeakOutflow,
+    PumpEnergy,
     ReliabilityMargin,
     RewardTerm,
     SetpointSmoothness,
+    StorageUnderUtilization,
+    UncontrolledDischarge,
 )
 
 # ---------------------------------------------------------------------------
@@ -38,6 +41,9 @@ RewardRegistry.register("cso_volume", CSOVolume)
 RewardRegistry.register("peak_outflow", PeakOutflow)
 RewardRegistry.register("reliability_margin", ReliabilityMargin)
 RewardRegistry.register("setpoint_smoothness", SetpointSmoothness)
+RewardRegistry.register("uncontrolled_discharge", UncontrolledDischarge)
+RewardRegistry.register("storage_underutilization", StorageUnderUtilization)
+RewardRegistry.register("pump_energy", PumpEnergy)
 
 
 __all__ = [
@@ -48,4 +54,7 @@ __all__ = [
     "PeakOutflow",
     "ReliabilityMargin",
     "SetpointSmoothness",
+    "UncontrolledDischarge",
+    "StorageUnderUtilization",
+    "PumpEnergy",
 ]

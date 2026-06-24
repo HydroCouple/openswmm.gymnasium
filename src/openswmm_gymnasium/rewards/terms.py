@@ -15,7 +15,7 @@ Each term is a small class implementing the L{RewardTerm} interface:
     the per-step contribution (B{positive} for both C{"minimize"} and
     C{"maximize"} terms; the env handles sign flipping per plan §0 #5).
 
-P2 ships five first-class terms:
+Ships eight first-class terms:
 
   - L{FloodingVolume} (P1) — flooding rate × dt, summed across nodes.
   - L{CSOVolume} — same math restricted to tagged overflow nodes.
@@ -25,9 +25,15 @@ P2 ships five first-class terms:
     each step. Direction: maximize.
   - L{SetpointSmoothness} — L2 norm of Δsetting between successive
     steps; cumulative measures total action churn.
+  - L{UncontrolledDischarge} — discharge through links feeding untreated
+    outfalls (positive flow × dt), summed. (Operational objective #2.)
+  - L{StorageUnderUtilization} — time-integrated unused storage headroom
+    (C{1 - depth/max_depth}) across storage nodes. (Objective #3.)
+  - L{PumpEnergy} — pump effort (control setting × rated power × dt)
+    summed across pumps. (Objective #4.)
 
-The remaining four plan §5.1 terms (C{PumpEnergy}, C{TSSLoad},
-C{CapitalCost}, C{OandMCost}) land in subsequent phases.
+The remaining plan §5.1 terms (C{TSSLoad}, C{CapitalCost},
+C{OandMCost}) land in subsequent phases.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -332,3 +338,186 @@ class SetpointSmoothness:
             churn += d * d
         self._prev = current
         return churn
+
+
+# =============================================================================
+# Operational objectives (capacity-market / RTC tuning)
+# =============================================================================
+
+
+class UncontrolledDischarge:
+    """Discharge through links feeding B{untreated} outfalls, per env step.
+
+    Computed as C{sum_i max(0, flow_i) * dt_seconds} over the supplied link IDs
+    — the conduits / outlets that discharge to outfalls B{not} carrying the
+    treatment tag. Only positive flow (toward the outfall, the conventional
+    C{FromNode -> outfall} orientation) counts as discharge; backflow into the
+    system is ignored. At a FREE outfall the engine reports node inflow as 0, so
+    the connecting B{link} flow — not the node — is the discharge signal. The
+    caller resolves which links feed untreated outfalls (from the model tags /
+    the market config C{treatment_tag}), mirroring L{CSOVolume}.
+
+    Operational objective #2 (minimise uncontrolled discharge).
+
+    @ivar name: C{"uncontrolled_discharge"} by default.
+    @ivar direction: Always C{"minimize"}.
+    """
+
+    direction = "minimize"
+
+    def __init__(
+        self,
+        link_ids: Sequence[str],
+        name: str = "uncontrolled_discharge",
+    ) -> None:
+        """
+        @param link_ids: Links discharging to untreated outfalls (required,
+            non-empty), oriented toward the outfall.
+        @type link_ids: sequence of str
+        @param name: Term identifier.
+        @type name: str
+        @raise ValueError: If C{link_ids} is empty.
+        """
+        if not link_ids:
+            raise ValueError("UncontrolledDischarge requires at least one link_id")
+        self.name = name
+        self._link_ids: list[str] = list(link_ids)
+        self._idxs: list[int] | None = None
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+
+    def reset(self) -> None:
+        """No cross-step state; no-op."""
+
+    def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
+        assert self._idxs is not None, "bind() before step()"
+        get = adapter.links.get_flow
+        rate_sum = 0.0
+        for idx in self._idxs:
+            q = float(get(idx))
+            if q > 0.0:
+                rate_sum += q
+        return rate_sum * dt_seconds
+
+
+class StorageUnderUtilization:
+    """Time-integrated unused storage headroom across storage nodes.
+
+    Each step contributes C{sum_i max(0, 1 - depth_i / max_depth_i) * dt},
+    i.e. the fraction of each storage node left empty, integrated over time.
+    It is high when storage sits idle and falls to zero as nodes fill, so
+    minimising it rewards using available storage. Depth fill
+    (C{depth / max_depth}) is used as a volume proxy, exact for a prismatic
+    (linear) storage curve and a close approximation otherwise.
+
+    Operational objective #3 (minimise storage under-utilisation).
+
+    NOTE: integrated over the whole episode this also charges idle storage in
+    dry weather; weight it accordingly in the objective vector (the example
+    market config uses 0.5), or restrict C{node_ids} to event-relevant basins.
+
+    @ivar name: C{"storage_underutilization"} by default.
+    @ivar direction: Always C{"minimize"}.
+    """
+
+    direction = "minimize"
+
+    def __init__(
+        self,
+        node_ids: Sequence[str],
+        name: str = "storage_underutilization",
+    ) -> None:
+        """
+        @param node_ids: Storage node IDs (required, non-empty).
+        @type node_ids: sequence of str
+        @param name: Term identifier.
+        @type name: str
+        @raise ValueError: If C{node_ids} is empty.
+        """
+        if not node_ids:
+            raise ValueError("StorageUnderUtilization requires at least one node_id")
+        self.name = name
+        self._node_ids: list[str] = list(node_ids)
+        self._idxs: list[int] | None = None
+        self._max_depths: list[float] | None = None
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+        self._max_depths = [float(adapter.nodes.get_max_depth(i)) for i in self._idxs]
+
+    def reset(self) -> None:
+        """No cross-step state; no-op."""
+
+    def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
+        assert self._idxs is not None and self._max_depths is not None, "bind() before step()"
+        get = adapter.nodes.get_depth
+        headroom = 0.0
+        for idx, md in zip(self._idxs, self._max_depths, strict=True):
+            if md <= 0.0:
+                continue
+            fill = float(get(idx)) / md
+            unused = 1.0 - fill
+            if unused > 0.0:
+                headroom += unused
+        return headroom * dt_seconds
+
+
+class PumpEnergy:
+    """Pumping effort summed across pumps, per env step.
+
+    Computed as C{sum_i setting_i * rated_power_i * dt_seconds}, where
+    C{setting} is the pump's control setting in [0,1]
+    (L{openswmm.engine.Links.get_control_setting}) — the fraction-on / relative
+    speed — and C{rated_power} is a per-pump constant (default 1.0). With the
+    default this is on-time-weighted effort (∫ setting dt); supply
+    C{rated_power} in consistent power units to obtain energy. A flow×head
+    variant can replace this once link end-node heads are exposed.
+
+    Operational objective #4 (minimise pumping energy).
+
+    @ivar name: C{"pump_energy"} by default.
+    @ivar direction: Always C{"minimize"}.
+    """
+
+    direction = "minimize"
+
+    def __init__(
+        self,
+        link_ids: Sequence[str],
+        rated_power: dict[str, float] | None = None,
+        name: str = "pump_energy",
+    ) -> None:
+        """
+        @param link_ids: Pump link IDs (required, non-empty).
+        @type link_ids: sequence of str
+        @param rated_power: Optional C{{link_id: power}} (default 1.0 each).
+        @type rated_power: dict of str to float or C{None}
+        @param name: Term identifier.
+        @type name: str
+        @raise ValueError: If C{link_ids} is empty.
+        """
+        if not link_ids:
+            raise ValueError("PumpEnergy requires at least one link_id")
+        self.name = name
+        self._link_ids: list[str] = list(link_ids)
+        self._rated_power = dict(rated_power) if rated_power is not None else {}
+        self._idxs: list[int] | None = None
+        self._powers: list[float] | None = None
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._powers = [float(self._rated_power.get(lid, 1.0)) for lid in self._link_ids]
+
+    def reset(self) -> None:
+        """No cross-step state; no-op."""
+
+    def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
+        assert self._idxs is not None and self._powers is not None, "bind() before step()"
+        get = adapter.links.get_control_setting
+        effort = 0.0
+        for idx, power in zip(self._idxs, self._powers, strict=True):
+            setting = float(get(idx))
+            if setting > 0.0:
+                effort += setting * power
+        return effort * dt_seconds

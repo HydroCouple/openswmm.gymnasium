@@ -2,9 +2,8 @@
 Runtime (RTC) action factories.
 
 Each factory exposes a L{gymnasium.spaces.Box}-or-similar over a set of
-controllable elements and translates sampled values into
-L{openswmm.engine.Controls.set_link_setting} (or related) calls each
-step.
+controllable elements and translates sampled values into persistent
+runtime overrides via the link C{target_setting} (or related) each step.
 
 Plan §3.2.
 
@@ -27,8 +26,10 @@ class OrificeSetting:
     """Box action over the control setting of one or more links.
 
     The setting is a real number in C{[0, 1]}, where C{0} = fully closed
-    and C{1} = fully open. Applied via
-    L{openswmm.engine.Controls.set_link_setting}.
+    and C{1} = fully open. Applied via the link's C{target_setting} (the
+    persistent runtime-control override; C{Controls.set_link_setting}
+    sets C{control_setting}, which the engine recomputes each routing
+    step and so would not stick without a control rule).
 
     Although the name reflects the primary use case, the underlying
     engine call accepts any controllable link (orifices, weirs, pumps,
@@ -109,7 +110,7 @@ class OrificeSetting:
         # range and we'd rather silently clamp.
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, 1.0)
         for idx, v in zip(self._link_idxs, clipped, strict=True):
-            adapter.controls.set_link_setting(idx, float(v))
+            adapter.links.set_target_setting(idx, float(v))
 
 
 class NodeLateralInflow:

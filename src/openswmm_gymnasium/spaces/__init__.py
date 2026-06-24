@@ -32,8 +32,11 @@ from openswmm_gymnasium.spaces.design import (
     LinkLength,
     LinkRoughness,
     NodeMaxDepth,
+    SubcatchGWOutflowCoeff,
 )
+from openswmm_gymnasium.spaces.policy import MarketPolicySpace, PolicyParam
 from openswmm_gymnasium.spaces.runtime import NodeLateralInflow, OrificeSetting
+from openswmm_gymnasium.spaces.schedule import SchedulePolicySpace
 
 __all__ = [
     "OrificeSetting",
@@ -43,4 +46,8 @@ __all__ = [
     "LinkLength",
     "LinkDiameter",
     "NodeMaxDepth",
+    "SubcatchGWOutflowCoeff",
+    "MarketPolicySpace",
+    "PolicyParam",
+    "SchedulePolicySpace",
 ]

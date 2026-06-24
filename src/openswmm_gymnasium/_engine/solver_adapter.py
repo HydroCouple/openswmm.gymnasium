@@ -181,6 +181,16 @@ class _LinksCompat:
     def get_control_setting(self, idx: int) -> float:
         return self._col[idx].control_setting
 
+    def get_target_setting(self, idx: int) -> float:
+        return self._col[idx].target_setting
+
+    def set_target_setting(self, idx: int, value: float) -> None:
+        # Persistent runtime-control override: the engine moves the link's
+        # control_setting toward target_setting each routing step and holds it
+        # there. (control_setting set via Controls.set_link_setting is recomputed
+        # from the target every step, so it does not stick without a rule.)
+        self._col[idx].target_setting = value
+
     def get_velocity(self, idx: int) -> float:
         return self._col[idx].velocity
 
