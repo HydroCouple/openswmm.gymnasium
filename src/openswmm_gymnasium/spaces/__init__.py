@@ -26,6 +26,7 @@ L{SolverAdapter.initialize}.
 @license: MIT
 """
 
+from openswmm_gymnasium.spaces.control_curve import ControlCurvePolicySpace
 from openswmm_gymnasium.spaces.design import (
     DesignActionFactory,
     LinkDiameter,
@@ -50,4 +51,5 @@ __all__ = [
     "MarketPolicySpace",
     "PolicyParam",
     "SchedulePolicySpace",
+    "ControlCurvePolicySpace",
 ]
