@@ -11,6 +11,12 @@ subcatchment runoff, gage rainfall, and a clock collector. Forecast
 injection and pollutant-concentration collectors land in P5
 (forecast wrapper) and the pollutant phase respectively.
 
+The engine's 2D per-vertex fields (e.g.
+C{Surface2D.get_vertex_render_depths}) are intentionally B{not} exposed as
+collectors here: this builder is a flat 1-D scalar-per-element pipeline and
+there is no 2D observation path in the package today. A spatial (grid/mesh)
+observation subsystem would be a separate design, not a collector bolt-on.
+
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
 @license: MIT

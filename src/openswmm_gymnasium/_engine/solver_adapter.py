@@ -9,6 +9,10 @@ the minimum surface the rest of the package needs:
     L{SolverAdapter.stride}, L{SolverAdapter.end},
     L{SolverAdapter.report}, L{SolverAdapter.close}.
   - Idempotent L{SolverAdapter.close} / context-manager protocol.
+  - Opt-in lenient (permissive) open with readable validation output via
+    L{SolverAdapter.open}C{(lenient=True)}, L{SolverAdapter.open_errors},
+    and L{SolverAdapter.open_warnings} — for pre-flight validation of
+    programmatically-generated / perturbed training models.
   - Lazy L{openswmm.engine.Nodes} / L{openswmm.engine.Links} /
     L{openswmm.engine.Controls} accessors cached per adapter instance.
   - Hard guard against C{openswmm.legacy.engine.Solver} — passing a
@@ -267,6 +271,31 @@ class _SubcatchmentsCompat:
     def get_runoff(self, idx: int) -> float:
         return self._col[idx].runoff
 
+    def get_groundwater(self, idx: int) -> float:
+        # Groundwater outflow rate (swmm_subcatch_get_groundwater); project
+        # flow units. 0.0 on subcatchments without an aquifer.
+        return self._col[idx].groundwater
+
+    def get_gw_params(self, idx: int) -> tuple:
+        # (surf_elev, a1, b1, a2, b2, a3, tw, hstar) — [GROUNDWATER] token
+        # order; requires an aquifer to be assigned.
+        return tuple(self._col[idx].gw_params)
+
+    def set_gw_params(
+        self,
+        idx: int,
+        surf_elev: float,
+        a1: float,
+        b1: float,
+        a2: float,
+        b2: float,
+        a3: float,
+        tw: float,
+        hstar: float,
+    ) -> None:
+        # swmm_subcatch_set_gw_params; requires an aquifer to be assigned.
+        self._col[idx].set_gw_params(surf_elev, a1, b1, a2, b2, a3, tw, hstar)
+
 
 class _GagesCompat:
     """Scalar rain-gage accessor over the v6 ``Gages`` collection."""
@@ -357,18 +386,35 @@ class SolverAdapter:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def open(self, plugin_lib: PathLike | None = None) -> None:
+    def open(self, plugin_lib: PathLike | None = None, *, lenient: bool = False) -> None:
         """Open the input file and allocate the engine handle.
 
         Transitions the engine C{CREATED -> OPENED}. The v6 engine raises
         on failure rather than returning a status code.
 
+        With C{lenient=True} the engine records post-parse validation errors
+        (undefined objects, missing curves, bad references) but still leaves
+        the model C{OPENED} and inspectable instead of hard-failing; read the
+        accumulated messages via L{open_errors} / L{open_warnings}. This is a
+        B{pre-flight validation} aid for training harnesses that
+        programmatically generate or perturb C{.inp} models (CIP design search,
+        domain randomization): open a candidate leniently, inspect the errors,
+        and skip/report broken candidates instead of crashing the rollout.
+        Per the engine contract a lenient open is B{not} runnable — a model to
+        be stepped must be opened strictly (the default), so the env run path
+        leaves C{lenient=False}.
+
         @param plugin_lib: Optional path to a plugin shared library.
         @type plugin_lib: str, C{os.PathLike}, or C{None}
+        @param lenient: If C{True}, enable permissive open (see above).
+            Defaults to C{False} (strict).
+        @type lenient: bool
         @raise openswmm.engine.EngineError: On C API failure.
         """
         if self._opened:
             return
+        if lenient:
+            self._solver.set_lenient_open(True)
         if plugin_lib is None:
             self._solver.open()
         else:
@@ -555,6 +601,32 @@ class SolverAdapter:
         if us is not None:
             return str(us)
         return "US" if self.flow_units in ("CFS", "GPM", "MGD") else "SI"
+
+    @property
+    def open_errors(self) -> list[str]:
+        """Post-parse validation errors accumulated during L{open}.
+
+        Populated primarily after a lenient open (L{open}C{(lenient=True)});
+        a strict open that succeeds leaves this empty. Each entry is a
+        human-readable message string. Surfaces the engine's
+        C{Solver.open_errors} accumulator so a training harness can report or
+        reject a broken candidate model.
+
+        @rtype: list[str]
+        """
+        return list(self._solver.open_errors)
+
+    @property
+    def open_warnings(self) -> list[str]:
+        """Warnings accumulated during L{open}.
+
+        Populated on either a strict or a lenient open. Each entry is a
+        human-readable message string. Surfaces the engine's
+        C{Solver.open_warnings} accumulator.
+
+        @rtype: list[str]
+        """
+        return list(self._solver.open_warnings)
 
     @property
     def start_time(self) -> float:

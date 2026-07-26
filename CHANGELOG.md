@@ -90,6 +90,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each `SolverAdapter` owns a distinct `SWMM_Engine` handle, enabling
   both `gymnasium.vector.SyncVectorEnv` (threads) and `AsyncVectorEnv`
   (processes) rollouts.
+- `SolverAdapter.open(lenient=True)` opt-in permissive open plus
+  `SolverAdapter.open_errors` / `SolverAdapter.open_warnings` accessors,
+  surfacing the engine's `set_lenient_open` / validation-accumulator
+  API for pre-flight validation of programmatically-generated or
+  perturbed training models (broken candidates are reported/rejected
+  instead of crashing the rollout). The env run path stays strict.
 
 ### Conventions
 - Docstrings: epytext (`@param`, `@type`, `@return`, `@rtype`,
