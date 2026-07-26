@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Design factories applied **between** `Solver.open()` and
   `Solver.initialize()` so the engine picks up overridden values during
   data-structure setup.
+- Asset-sizing design factories for exhaustive design exploration:
+  `StorageVolume` (FUNCTIONAL storage sizing — scalar footprint multiplier or
+  raw `(a, b, c)` coefficients), `LIDPlacement` (green-infrastructure /
+  nature-based-solution sizing + LID type selection per subcatchment), and
+  `RDIIUnitHydrograph` (RDII R-fraction and optional initial-abstraction
+  sizing, preserving T and K). Backed by new `SolverAdapter` storage /
+  `infrastructure` / `inflows` setters.
 
 #### Observations
 - `ObservationBuilder` with 10 collectors covering nodes (depths, heads,

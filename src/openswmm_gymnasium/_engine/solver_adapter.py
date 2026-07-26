@@ -39,6 +39,9 @@ from openswmm.engine import (
     EngineState,
     Gages,
     HotStart,
+    Infrastructure,
+    Inflows,
+    LidType,
     Links,
     Nodes,
     Solver,
@@ -147,6 +150,15 @@ class _NodesCompat:
 
     def set_max_depth(self, idx: int, value: float) -> None:
         self._col[idx].max_depth = value
+
+    def get_storage_functional(self, idx: int) -> tuple[float, float, float]:
+        # (a, b, c) of the FUNCTIONAL storage relation Area = a*Depth^b + c.
+        # Only valid on STORAGE nodes whose shape is FUNCTIONAL.
+        return tuple(self._col[idx].storage.functional)
+
+    def set_storage_functional(self, idx: int, a: float, b: float, c: float) -> None:
+        # swmm_node_set_storage_functional; STORAGE + FUNCTIONAL shape only.
+        self._col[idx].storage.functional = (a, b, c)
 
     def array(self, name: str):
         """Return a whole-network bulk array property of the node collection.
@@ -312,6 +324,110 @@ class _GagesCompat:
         return self._col[idx].rainfall
 
 
+class _InfrastructureCompat:
+    """LID (green-infrastructure) editor over the v6 ``Infrastructure`` API.
+
+    Surfaces the ``Infrastructure.lids`` surface the design factories need:
+    resolving an existing LID-control id to its index, adding a control,
+    setting its surface layer, and placing a sized usage on a subcatchment.
+    LID edits are valid in the OPENED (pre-initialize) state, which is the
+    window CIP design factories run in.
+    """
+
+    __slots__ = ("_infra",)
+
+    def __init__(self, infra: Infrastructure) -> None:
+        self._infra = infra
+
+    def lid_count(self) -> int:
+        return len(self._infra.lids)
+
+    def get_lid_index(self, lid_id: str) -> int:
+        # Existing LID-control id -> engine index. Raises if undefined.
+        return self._infra.lids.get_index(lid_id)
+
+    def add_lid(self, lid_id: str, lid_type: int) -> int:
+        # Create a new LID control of ``lid_type`` (a LidType / int code).
+        return self._infra.lids.add(lid_id, LidType(int(lid_type)))
+
+    def set_lid_surface(
+        self, idx: int, storage: float, roughness: float, slope: float
+    ) -> None:
+        self._infra.lids.set_surface(
+            idx, storage=storage, roughness=roughness, slope=slope
+        )
+
+    def lid_usage_add(
+        self,
+        subcatchment: int | str,
+        lid_idx: int,
+        number: int,
+        area: float,
+        width: float,
+        init_sat: float = 0.0,
+        from_imperv: float = 0.0,
+    ) -> None:
+        # Place ``number`` LID units of control ``lid_idx`` on ``subcatchment``
+        # (id or index); ``lid`` must be an integer control index.
+        self._infra.lids.usage_add(
+            subcatchment,
+            int(lid_idx),
+            number=int(number),
+            area=area,
+            width=width,
+            init_sat=init_sat,
+            from_imperv=from_imperv,
+        )
+
+
+class _InflowsCompat:
+    """Inflow editor over the v6 ``Inflows`` API (RDII / hydrograph surface).
+
+    Surfaces the RDII unit-hydrograph editing the design factories need:
+    scanning the existing hydrograph entries to preserve untouched
+    parameters, then rewriting the RTK triangle and the initial-abstraction
+    terms of a target ``(uh_name, month, response)`` group. Inflow edits are
+    valid in the OPENED (pre-initialize) state.
+    """
+
+    __slots__ = ("_inflows",)
+
+    def __init__(self, inflows: Inflows) -> None:
+        self._inflows = inflows
+
+    def hydrograph_count(self) -> int:
+        return int(self._inflows.hydrograph_count)
+
+    def get_hydrograph(self, idx: int):
+        # Returns a HydrographEntry:
+        # (uh_name, month, response, r, t, k, dmax, drecov, dinit).
+        return self._inflows.get_hydrograph(idx)
+
+    def set_hydrograph_rtk(
+        self, uh_name: str, month: int, response: int, r: float, t: float, k: float
+    ) -> None:
+        self._inflows.set_hydrograph_rtk(uh_name, int(month), int(response), r, t, k)
+
+    def set_hydrograph_ia(
+        self,
+        uh_name: str,
+        month: int,
+        response: int,
+        dmax: float,
+        drecov: float,
+        dinit: float,
+    ) -> None:
+        self._inflows.set_hydrograph_ia(
+            uh_name, int(month), int(response), dmax, drecov, dinit
+        )
+
+    def add_rdii(self, node: int | str, uh_name: str, area: float) -> None:
+        self._inflows.add_rdii(node, uh_name, area)
+
+    def rdii_count(self) -> int:
+        return int(self._inflows.rdii_count)
+
+
 class SolverAdapter:
     """Thin lifecycle wrapper around L{openswmm.engine.Solver}.
 
@@ -381,6 +497,8 @@ class SolverAdapter:
         self._controls: Controls | None = None
         self._subcatchments: Subcatchments | None = None
         self._gages: Gages | None = None
+        self._infrastructure: _InfrastructureCompat | None = None
+        self._inflows: _InflowsCompat | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -713,6 +831,26 @@ class SolverAdapter:
         if self._gages is None:
             self._gages = _GagesCompat(Gages(self._solver))
         return self._gages
+
+    @property
+    def infrastructure(self) -> _InfrastructureCompat:
+        """Lazily-constructed, cached LID / green-infrastructure editor.
+
+        @rtype: L{_InfrastructureCompat}
+        """
+        if self._infrastructure is None:
+            self._infrastructure = _InfrastructureCompat(Infrastructure(self._solver))
+        return self._infrastructure
+
+    @property
+    def inflows(self) -> _InflowsCompat:
+        """Lazily-constructed, cached inflow / RDII editor.
+
+        @rtype: L{_InflowsCompat}
+        """
+        if self._inflows is None:
+            self._inflows = _InflowsCompat(Inflows(self._solver))
+        return self._inflows
 
     # ------------------------------------------------------------------
     # Context manager

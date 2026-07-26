@@ -29,10 +29,13 @@ L{SolverAdapter.initialize}.
 from openswmm_gymnasium.spaces.control_curve import ControlCurvePolicySpace
 from openswmm_gymnasium.spaces.design import (
     DesignActionFactory,
+    LIDPlacement,
     LinkDiameter,
     LinkLength,
     LinkRoughness,
     NodeMaxDepth,
+    RDIIUnitHydrograph,
+    StorageVolume,
     SubcatchGWOutflowCoeff,
 )
 from openswmm_gymnasium.spaces.policy import MarketPolicySpace, PolicyParam
@@ -48,6 +51,9 @@ __all__ = [
     "LinkDiameter",
     "NodeMaxDepth",
     "SubcatchGWOutflowCoeff",
+    "StorageVolume",
+    "LIDPlacement",
+    "RDIIUnitHydrograph",
     "MarketPolicySpace",
     "PolicyParam",
     "SchedulePolicySpace",
