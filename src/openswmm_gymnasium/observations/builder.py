@@ -11,11 +11,11 @@ subcatchment runoff, gage rainfall, and a clock collector. Forecast
 injection and pollutant-concentration collectors land in P5
 (forecast wrapper) and the pollutant phase respectively.
 
-The engine's 2D per-vertex fields (e.g.
-C{Surface2D.get_vertex_render_depths}) are intentionally B{not} exposed as
-collectors here: this builder is a flat 1-D scalar-per-element pipeline and
-there is no 2D observation path in the package today. A spatial (grid/mesh)
-observation subsystem would be a separate design, not a collector bolt-on.
+The engine's 2D surface is exposed only through the flat
+selected-vertex collector L{ObservationBuilder.add_2d_vertex_depths}
+(bulk C{Surface2D.get_vertex_render_depths} + gather at chosen vertex
+indices). A full spatial (grid/mesh) observation subsystem remains a
+separate design, not a collector bolt-on.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -312,6 +312,24 @@ class _SubcatchRunoffCollector(_ScalarReadCollector):
         return adapter.subcatchments.get_runoff(idx)
 
 
+class _SubcatchGroundwaterCollector(_ScalarReadCollector):
+    """Groundwater outflow rate from each subcatchment.
+
+    Reads :attr:`openswmm.engine.Subcatchment.groundwater` (project flow
+    units); ``0.0`` on subcatchments without an assigned aquifer. Useful for
+    agents that must observe slow baseflow / antecedent wetness in addition
+    to the fast runoff signal.
+    """
+
+    _kind_label = "add_subcatch_groundwater"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.subcatchments.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.subcatchments.get_groundwater(idx)
+
+
 class _RainfallCollector(_ScalarReadCollector):
     """Rainfall intensity at each rain gage."""
 
@@ -322,6 +340,52 @@ class _RainfallCollector(_ScalarReadCollector):
 
     def _read_scalar(self, adapter, idx):
         return adapter.gages.get_rainfall(idx)
+
+
+# =============================================================================
+# 2D surface collectors (integer vertex indices, not symbolic IDs)
+# =============================================================================
+
+
+class _Surface2DVertexDepthCollector:
+    """Signed inundation depth (C{eta_v - z_v}) at selected 2D mesh vertices.
+
+    Unlike the 1D collectors, 2D mesh vertices have no symbolic IDs —
+    they are addressed by integer index into the mesh's vertex array.
+    Reads the whole-mesh bulk render-depth field once per step and
+    gathers the requested vertices, mirroring the bulk fast path of
+    L{_ScalarReadCollector}.
+    """
+
+    _kind_label = "add_2d_vertex_depths"
+
+    def __init__(self, vertex_idxs: Sequence[int]) -> None:
+        if not vertex_idxs:
+            raise ValueError(f"{self._kind_label} requires at least one vertex index")
+        self._vertex_idxs: list[int] = [int(i) for i in vertex_idxs]
+        self._idx_arr = None
+
+    @property
+    def size(self) -> int:
+        return len(self._vertex_idxs)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        # adapter.surface2d raises with a clear message when the engine
+        # has no 2D module or the model's 2D surface is inactive
+        # (including IGNORE_2D episodes).
+        n = adapter.surface2d.n_vertices
+        bad = [i for i in self._vertex_idxs if not 0 <= i < n]
+        if bad:
+            raise ValueError(
+                f"{self._kind_label}: vertex indices out of range "
+                f"[0, {n}): {bad}"
+            )
+        self._idx_arr = np.asarray(self._vertex_idxs, dtype=np.intp)
+
+    def collect(self, adapter: SolverAdapter) -> np.ndarray:
+        assert self._idx_arr is not None, "bind() before collect()"
+        arr = adapter.surface2d.vertex_render_depths()
+        return np.asarray(arr, dtype=np.float32)[self._idx_arr]
 
 
 # =============================================================================
@@ -536,12 +600,46 @@ class ObservationBuilder:
         self._collectors.append(_SubcatchRunoffCollector(subcatch_ids))
         return self
 
+    def add_subcatch_groundwater(
+        self, subcatch_ids: Sequence[str]
+    ) -> ObservationBuilder:
+        """Append a subcatchment-groundwater (baseflow) collector.
+
+        @param subcatch_ids: Subcatchment IDs whose groundwater outflow to
+            observe.
+        @type subcatch_ids: sequence of str
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_SubcatchGroundwaterCollector(subcatch_ids))
+        return self
+
     def add_rainfall(self, gage_ids: Sequence[str]) -> ObservationBuilder:
         """Append a rain-gage rainfall collector.
 
         @rtype: L{ObservationBuilder}
         """
         self._collectors.append(_RainfallCollector(gage_ids))
+        return self
+
+    # ----- 2D surface features -------------------------------------------
+
+    def add_2d_vertex_depths(self, vertex_idxs: Sequence[int]) -> ObservationBuilder:
+        """Append a 2D mesh vertex inundation-depth collector.
+
+        Observes the signed render depth (C{eta_v - z_v}, m; negative =
+        dry freeboard) at the given mesh vertex indices, via the bulk
+        C{Surface2D.get_vertex_render_depths} read. Requires an engine
+        built with the 2D module and a model with an active 2D surface;
+        binding fails with a clear error otherwise (including episodes
+        run with the C{IGNORE_2D} gate on).
+
+        @param vertex_idxs: 2D mesh vertex indices (0-based) to observe.
+        @type vertex_idxs: sequence of int
+        @return: This builder, for chaining.
+        @rtype: L{ObservationBuilder}
+        @raise ValueError: If C{vertex_idxs} is empty.
+        """
+        self._collectors.append(_Surface2DVertexDepthCollector(vertex_idxs))
         return self
 
     # ----- Time features -------------------------------------------------

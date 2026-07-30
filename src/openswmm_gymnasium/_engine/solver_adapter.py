@@ -428,6 +428,33 @@ class _InflowsCompat:
         return int(self._inflows.rdii_count)
 
 
+class _Surface2DCompat:
+    """Read-only 2D surface accessor over ``Solver.surface2d``.
+
+    Surfaces the small slice of :class:`openswmm.engine.Surface2D` the
+    observation pipeline needs: activity flag, vertex count, and the
+    bulk per-vertex render-depth read (the signed ``eta_v - z_v`` field
+    used for inundation observation).
+    """
+
+    __slots__ = ("_surf",)
+
+    def __init__(self, surf) -> None:
+        self._surf = surf
+
+    @property
+    def is_active(self) -> bool:
+        return bool(self._surf.is_active)
+
+    @property
+    def n_vertices(self) -> int:
+        return int(self._surf.n_vertices)
+
+    def vertex_render_depths(self):
+        # Bulk ndarray of shape (n_vertices,); GIL released engine-side.
+        return self._surf.get_vertex_render_depths()
+
+
 class SolverAdapter:
     """Thin lifecycle wrapper around L{openswmm.engine.Solver}.
 
@@ -499,6 +526,7 @@ class SolverAdapter:
         self._gages: Gages | None = None
         self._infrastructure: _InfrastructureCompat | None = None
         self._inflows: _InflowsCompat | None = None
+        self._surface2d: _Surface2DCompat | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -781,6 +809,53 @@ class SolverAdapter:
         @rtype: L{openswmm.engine.Solver}
         """
         return self._solver
+
+    @property
+    def surface2d(self) -> _Surface2DCompat:
+        """Lazily-constructed, cached 2D surface accessor.
+
+        Raises with a clear message when the engine build carries no 2D
+        module or the open model has no active 2D surface (no C{[2D_*]}
+        sections, or the C{IGNORE_2D} gate is on) — 2D observations
+        cannot be combined with 1D-only episodes.
+
+        @rtype: L{_Surface2DCompat}
+        @raise RuntimeError: If the 2D surface is unavailable.
+        """
+        if self._surface2d is None:
+            try:
+                surf = self._solver.surface2d
+            except ImportError as exc:
+                raise RuntimeError(
+                    "This openswmm.engine build has no 2D module "
+                    "(OPENSWMM_BUILD_2D=OFF); 2D observations are unavailable."
+                ) from exc
+            compat = _Surface2DCompat(surf)
+            if not compat.is_active:
+                raise RuntimeError(
+                    "The open model has no active 2D surface (no [2D_*] "
+                    "sections, or IGNORE_2D is enabled); remove the 2D "
+                    "collectors or run with the 2D module on."
+                )
+            self._surface2d = compat
+        return self._surface2d
+
+    def set_option(self, name: str, value) -> None:
+        """Set one C{[OPTIONS]} entry on the open model (pre-initialize).
+
+        Thin pass-through to the engine's C{Solver.options} mapping —
+        e.g. C{set_option("IGNORE_2D", "YES")} runs a meshed model
+        1D-only for cheap training episodes. Call after L{open} and
+        before L{initialize}.
+
+        @param name: Option keyword as it appears in C{[OPTIONS]}.
+        @type name: str
+        @param value: Option value; converted to its string form by the
+            engine mapping.
+        @raise openswmm.engine.EngineError: If the engine rejects the
+            key or value.
+        """
+        self._solver.options[name] = value
 
     @property
     def nodes(self) -> _NodesCompat:

@@ -121,10 +121,13 @@ class SwmmRTCEnv(gym.Env):
         runtime_subspaces: dict[str, spaces.Space] = {
             f.name: f.space for f in self._runtime_factories
         }
-        # Gymnasium forbids empty Dict spaces (``check_env`` rejects them),
-        # so we expose only the non-empty action halves. An RTC env carries
-        # just the ``"runtime"`` key; ``step`` reads it via ``action.get``.
-        self.action_space = spaces.Dict({"runtime": spaces.Dict(runtime_subspaces)})
+        # Per the plan §3 contract the action space is always
+        # ``Dict({"design", "runtime"})``; an RTC env has an empty
+        # ``"design"`` half. Both keys are always present so the
+        # mask wrappers and the design/runtime split hold uniformly.
+        self.action_space = spaces.Dict(
+            {"design": spaces.Dict({}), "runtime": spaces.Dict(runtime_subspaces)}
+        )
         self.observation_space = self._observation_builder.space()
 
         # ---- Per-episode state ---------------------------------------
@@ -154,12 +157,28 @@ class SwmmRTCEnv(gym.Env):
 
         @param seed: Optional seed forwarded to L{gymnasium.Env.reset}.
         @type seed: int or C{None}
-        @param options: Reserved for future use; currently ignored.
+        @param options: Optional per-episode settings. Supported key:
+            C{"engine_options"} — a C{{name: value}} mapping applied to
+            the model's C{[OPTIONS]} block after open and before
+            initialize (e.g. C{{"IGNORE_2D": "YES"}} to run a meshed
+            model 1D-only for cheap training episodes). Unknown keys
+            raise.
         @type options: dict or C{None}
         @return: Tuple C{(observation, info)} per Gymnasium 1.x.
         @rtype: tuple
+        @raise ValueError: If C{options} contains an unsupported key.
         """
         super().reset(seed=seed)
+
+        engine_options: dict[str, Any] = {}
+        if options:
+            unknown = set(options) - {"engine_options"}
+            if unknown:
+                raise ValueError(
+                    f"Unsupported reset options: {sorted(unknown)}; "
+                    f"supported: ['engine_options']"
+                )
+            engine_options = dict(options.get("engine_options") or {})
 
         # Close any prior episode's solver.
         if self._adapter is not None:
@@ -170,6 +189,8 @@ class SwmmRTCEnv(gym.Env):
         # RUNNING; step() is guarded on that state).
         self._adapter = SolverAdapter(self._inp_path, self._rpt_path, self._out_path)
         self._adapter.open()
+        for name, value in engine_options.items():
+            self._adapter.set_option(name, value)
         self._adapter.initialize()
         self._adapter.start()
 
