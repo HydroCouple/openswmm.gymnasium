@@ -19,13 +19,17 @@ automatically.
   - Description
 * - {py:class}`~openswmm_gymnasium.rewards.FloodingVolume`
   - minimise
-  - Sum of overflow volume across nodes per step
+  - Flooded volume across nodes per step, in project volume units
 * - {py:class}`~openswmm_gymnasium.rewards.CSOVolume`
   - minimise
   - Same math, restricted to tagged CSO nodes
 * - {py:class}`~openswmm_gymnasium.rewards.PeakOutflow`
   - minimise
   - Running-max increment of link flow
+* - {py:class}`~openswmm_gymnasium.rewards.TSSLoad`
+  - minimise
+  - Pollutant mass flux (flow × concentration × dt) through links. Despite the
+    name it works for any declared pollutant — pass `pollutant=...`
 * - {py:class}`~openswmm_gymnasium.rewards.ReliabilityMargin`
   - maximise
   - Minimum freeboard across nodes
@@ -33,6 +37,22 @@ automatically.
   - minimise
   - L2-norm-squared of Δsetting between steps
 ```
+
+## Engine statistics
+
+`FloodingVolume` (and hence `CSOVolume`) and `PeakOutflow` read the engine's
+own cumulative statistics — `swmm_node_get_stat_vol_flooded` and
+`swmm_link_get_stat_max_flow` — and difference successive readings to get a
+per-step contribution. The engine accumulates every **routing** step, whereas
+a Python term only sees state at **env**-step boundaries, so anything that
+happens between two env steps would otherwise be missed. Two consequences:
+
+* `FloodingVolume` is in project **volume** units (ft³ / m³) and does not
+  scale with `dt_seconds`.
+* `TSSLoad`, `ReliabilityMargin`, `PumpEnergy`, `UncontrolledDischarge`,
+  `StorageUnderUtilization` and `SetpointSmoothness` keep their Python loops:
+  no engine statistic carries the same quantity (a cumulative max is not a
+  per-step minimum; unweighted pump on-time is not `∫ setting·power dt`).
 
 ## Custom terms
 

@@ -56,6 +56,16 @@ obs = (
 * - `add_subcatch_runoff`
   - `Subcatchments.get_runoff`
   - Subcatchment runoff rate
+* - `add_subcatch_groundwater`
+  - `Subcatchment.groundwater`
+  - Subcatchment groundwater (baseflow) outflow rate
+* - `add_pollutant_concentration`
+  - `Node.quality`
+  - Per-node concentration of one pollutant, in its declared concentration
+    units (`mg/L`, `ug/L`, `#/L`). Add one collector per pollutant.
+* - `add_link_pollutant_concentration`
+  - `Link.quality`
+  - Per-link concentration of one pollutant
 * - `add_rainfall`
   - `Gages.get_rainfall`
   - Per-gage rainfall intensity

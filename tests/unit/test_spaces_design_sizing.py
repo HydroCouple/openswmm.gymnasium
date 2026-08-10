@@ -47,19 +47,44 @@ class _HG:
 
 
 class _Nodes:
-    def __init__(self, calls, baseline):
+    def __init__(self, calls, baseline, shapes=None, curves=None):
         self._calls = calls
         self._baseline = baseline
-        self._ids = {"T1": 0, "T2": 1}
+        self._ids = {"T1": 0, "T2": 1, "T3": 2, "T4": 3, "C1": 4}
+        # Default: every node in the legacy fixtures is FUNCTIONAL.
+        self._shapes = shapes if shapes is not None else {}
+        self._curves = curves if curves is not None else {}
 
     def get_index(self, nid):
         return self._ids[nid]
+
+    def get_storage_shape(self, idx):
+        return self._shapes.get(idx, "FUNCTIONAL")
+
+    def get_storage_curve(self, idx):
+        return self._curves[idx]
 
     def get_storage_functional(self, idx):
         return self._baseline[idx]
 
     def set_storage_functional(self, idx, a, b, c):
         self._calls.append(("storage", idx, round(a, 4), round(b, 4), round(c, 4)))
+
+
+class _Tables:
+    """Stand-in for L{_TablesCompat} over a couple of depth-area curves."""
+
+    def __init__(self, calls, curves):
+        self._calls = calls
+        self._curves = curves
+
+    def get_curve_points(self, idx):
+        return self._curves[idx]
+
+    def set_curve_points(self, idx, points):
+        self._calls.append(
+            ("curve", idx, [(round(x, 4), round(y, 4)) for x, y in points])
+        )
 
 
 class _Subs:
@@ -104,7 +129,21 @@ class MockAdapter:
 
     def __init__(self):
         self.calls: list[tuple] = []
-        self.nodes = _Nodes(self.calls, {0: (10000.0, 0.0, 0.0), 1: (5000.0, 0.5, 100.0)})
+        # T1/T2 are FUNCTIONAL; T3/T4 are TABULAR on curves 7 and 8; C1 is a
+        # geometric (CYLINDRICAL) storage unit that cannot be sized.
+        self.nodes = _Nodes(
+            self.calls,
+            {0: (10000.0, 0.0, 0.0), 1: (5000.0, 0.5, 100.0)},
+            shapes={2: "TABULAR", 3: "TABULAR", 4: "CYLINDRICAL"},
+            curves={2: 7, 3: 8},
+        )
+        self.tables = _Tables(
+            self.calls,
+            {
+                7: [(0.0, 1000.0), (5.0, 2000.0)],
+                8: [(0.0, 400.0), (2.0, 800.0)],
+            },
+        )
         self.subcatchments = _Subs()
         self.infrastructure = _Infra(self.calls)
         self.inflows = _Inflows(
@@ -145,6 +184,56 @@ class TestStorageVolume(unittest.TestCase):
             a.calls,
             [("storage", 0, 1000.0, 1.0, 50.0), ("storage", 1, 2000.0, 1.5, 60.0)],
         )
+
+    def test_scalar_scales_a_tabular_storage_curve(self):
+        """G3 — a TABULAR node is sized directly, not via the NodeMaxDepth proxy."""
+        f = StorageVolume(["T3"], low=0.5, high=3.0, mode="scalar")
+        a = MockAdapter()
+        f.bind(a)
+        f.apply(a, np.array([2.0], dtype=np.float32))
+        # Depths untouched; areas doubled.
+        self.assertEqual(
+            a.calls, [("curve", 7, [(0.0, 2000.0), (5.0, 4000.0)])]
+        )
+
+    def test_scalar_mixes_functional_and_tabular_nodes(self):
+        f = StorageVolume(["T1", "T3"], low=0.5, high=3.0, mode="scalar")
+        a = MockAdapter()
+        f.bind(a)
+        f.apply(a, np.array([2.0, 0.5], dtype=np.float32))
+        self.assertEqual(
+            a.calls,
+            [
+                ("storage", 0, 20000.0, 0.0, 0.0),
+                ("curve", 7, [(0.0, 500.0), (5.0, 1000.0)]),
+            ],
+        )
+
+    def test_tabular_multiplier_is_clipped(self):
+        f = StorageVolume(["T3"], low=0.5, high=3.0, mode="scalar")
+        a = MockAdapter()
+        f.bind(a)
+        f.apply(a, np.array([99.0], dtype=np.float32))
+        self.assertEqual(a.calls, [("curve", 7, [(0.0, 3000.0), (5.0, 6000.0)])])
+
+    def test_coeffs_mode_rejects_a_tabular_node(self):
+        f = StorageVolume(
+            ["T3"], low=[100.0, 0.0, 0.0], high=[9000.0, 2.0, 500.0], mode="coeffs"
+        )
+        with self.assertRaisesRegex(ValueError, "TABULAR"):
+            f.bind(MockAdapter())
+
+    def test_geometric_storage_shape_is_rejected(self):
+        f = StorageVolume(["C1"], low=0.5, high=3.0, mode="scalar")
+        with self.assertRaisesRegex(ValueError, "CYLINDRICAL"):
+            f.bind(MockAdapter())
+
+    def test_two_nodes_sharing_one_curve_are_rejected(self):
+        a = MockAdapter()
+        a.nodes._curves[3] = 7  # point T4 at T3's curve
+        f = StorageVolume(["T3", "T4"], low=0.5, high=3.0, mode="scalar")
+        with self.assertRaisesRegex(ValueError, "share"):
+            f.bind(a)
 
     def test_validation(self):
         with self.assertRaisesRegex(ValueError, "at least one node"):

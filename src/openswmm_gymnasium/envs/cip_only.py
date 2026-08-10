@@ -168,6 +168,7 @@ class SwmmCIPEnv(gym.Env):
             f.bind(adapter)
             f.apply(adapter, design[f.name])
         adapter.initialize()
+        adapter.start()
 
         # Bind observation + reward against the initialized solver.
         self._observation_builder.bind(adapter)

@@ -13,8 +13,15 @@ directly from C{openswmm.engine}. Plan §2 / §2.3.
 """
 
 from openswmm_gymnasium._engine.solver_adapter import (
+    EngineCapabilityError,
     LegacySolverRejectedError,
     SolverAdapter,
+    require_engine_capabilities,
 )
 
-__all__ = ["SolverAdapter", "LegacySolverRejectedError"]
+__all__ = [
+    "SolverAdapter",
+    "LegacySolverRejectedError",
+    "EngineCapabilityError",
+    "require_engine_capabilities",
+]

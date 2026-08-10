@@ -20,8 +20,10 @@ First-cut normalizations (refine per metric as needed):
     distinctions, e.g. true storage volume fill vs. depth, are a documented
     follow-up.)
   - link metric (C{filling_ratio}) -> C{clamp(depth / full_depth, 0, 1)}, where
-    C{full_depth} is the cross-section's primary geometry (C{geom1}; the
-    diameter for CIRCULAR). Approximate for non-CIRCULAR shapes.
+    C{full_depth} is the section's true rise as reported by the engine's
+    analytic cross-section geometry (L{openswmm.engine.XSectionGeometry}).
+    Exact for every shape, including box culverts, arches and irregular
+    (transect) sections.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -81,8 +83,7 @@ class MarketMetricReader:
                 divisor = float(adapter.nodes.get_max_depth(idx))
             elif a.element_type == "link" and a.stress_metric in _LINK_METRICS:
                 idx = adapter.links.get_index(a.id)
-                shape, geom1, _g2, _g3, _g4 = adapter.links.get_xsect(idx)
-                divisor = float(geom1)
+                divisor = float(adapter.links.get_full_depth(idx))
             else:
                 raise ValueError(
                     f"agent {a.id!r}: stress_metric {a.stress_metric!r} is not "

@@ -38,7 +38,14 @@ Applied **once per episode**, between
   - `Links.set_length`
 * - {py:class}`~openswmm_gymnasium.spaces.design.LinkDiameter`
   - `Box`
-  - `Links.set_xsect` (preserves shape, rewrites `geom1`)
+  - `Links.set_xsect` — resizes the section to a target **rise** (full depth,
+    read from the engine's `XSectionGeometry`), scaling every
+    length-dimensioned geometry parameter of the shape by the same factor so
+    the section stays geometrically similar. For a `CIRCULAR` pipe the rise is
+    the diameter; for a box culvert the width scales with the height.
+    Dimensionless parameters (trapezoid side slopes, the `POWER` exponent) and
+    table references are preserved. `IRREGULAR` / `STREET_XSECT` / `DUMMY`
+    sections have no scalable dimension and are rejected at `bind`.
 * - {py:class}`~openswmm_gymnasium.spaces.design.NodeMaxDepth`
   - `Box`
   - `Nodes.set_max_depth`
@@ -47,10 +54,16 @@ Applied **once per episode**, between
   - `Subcatchment.set_gw_params` (preserves other params, rewrites `a1`)
 * - {py:class}`~openswmm_gymnasium.spaces.design.StorageVolume`
   - `Box`
-  - `Nodes.set_storage_functional` — sizes FUNCTIONAL storage. `mode="scalar"`
-    scales the `(a, c)` coefficients by a per-node footprint multiplier
-    (volume scales linearly, exponent preserved); `mode="coeffs"` searches the
-    raw `(a, b, c)` triple.
+  - `Nodes.set_storage_functional` / `Tables` curve points — sizes both
+    FUNCTIONAL and TABULAR storage, resolved per node at `bind`.
+    `mode="scalar"` applies a per-node footprint multiplier: for FUNCTIONAL it
+    scales the `(a, c)` coefficients (volume scales linearly, exponent
+    preserved), for TABULAR it scales the depth–area curve's areas and leaves
+    its depths alone. `mode="coeffs"` searches the raw `(a, b, c)` triple and
+    is FUNCTIONAL-only. Geometric shapes (`CYLINDRICAL`, `CONICAL`,
+    `PARABOLOID`, `PYRAMIDAL`) are rejected at `bind`. A TABULAR node's curve
+    is rewritten in place in the open model, so give each searchable basin its
+    own curve.
 * - {py:class}`~openswmm_gymnasium.spaces.design.LIDPlacement`
   - `Box` (subcatchment-major `[type, area]`)
   - `Infrastructure.lid_usage_add` — sizes green-infrastructure / nature-based

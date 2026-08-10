@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — API gap-fill phases G2–G5
+
+- **Shape-aware cross-section sizing (G2).** `LinkDiameter` now resizes a
+  section to a target **rise** (full depth, read from the engine's
+  `XSectionGeometry`), scaling every length-dimensioned geometry parameter of
+  the shape by the same factor. A box culvert's width now moves with its
+  height instead of being left at its baseline. Shapes with no scalable
+  dimension (`IRREGULAR`, `STREET_XSECT`, `DUMMY`) are rejected at `bind`.
+- **Exact filling ratios (G2).** `MarketMetricReader`'s `filling_ratio`
+  normalises by the section's true rise instead of `geom1`, so it is exact for
+  every shape rather than "approximate for non-CIRCULAR".
+- **Tabular storage design (G3).** `StorageVolume` accepts TABULAR storage
+  nodes, scaling the node's depth–area curve through the new
+  `SolverAdapter.tables` accessor, instead of requiring the `NodeMaxDepth`
+  proxy. `mode="coeffs"` stays FUNCTIONAL-only; geometric storage shapes and
+  curves shared between two target nodes are rejected at `bind`.
+- **Pollutant observations (G4).** `ObservationBuilder.add_pollutant_concentration`
+  (nodes) and `add_link_pollutant_concentration`, both using the engine's bulk
+  `qualities()` read.
+- **`TSSLoad` reward term (G4).** Pollutant mass flux
+  (`flow × concentration × dt`) through a set of links; works for any declared
+  pollutant. Registered as `"tss_load"`.
+- **Engine capability probe (G5).** `SolverAdapter` construction now verifies
+  the installed `openswmm.engine` exposes every symbol this package calls and
+  raises `EngineCapabilityError` naming the missing ones. Replaces two ad-hoc
+  `getattr(..., None)` fallbacks. Optional surfaces (the 2D module) are
+  deliberately not probed, so `OPENSWMM_BUILD_2D=OFF` builds still work.
+
+### Changed
+
+- `FloodingVolume` / `CSOVolume` now read the engine's cumulative
+  `swmm_node_get_stat_vol_flooded` statistic and report its per-step
+  increment, instead of sampling the instantaneous overflow rate once per env
+  step and multiplying by `dt`. The engine integrates every routing step, so
+  volume that occurs between two env steps is no longer lost.
+  **The reported quantity is now in project volume units (ft³ / m³)** and no
+  longer scales with `dt_seconds`; for CFS/CMS models the numbers are
+  unchanged in kind, for GPM/MGD/LPS/MLD models the units differ from before.
+- `PeakOutflow` reads the engine's cumulative `swmm_link_get_stat_max_flow`
+  rather than sampling `link.flow`, so a peak between two env steps is caught.
+  Units and semantics (project flow units, cumulative equals the peak) are
+  unchanged.
+
+### Fixed
+
+- **`NodeLateralInflow.apply` raised `AttributeError` on every call (G1).** It
+  reached for `adapter.set_lateral_inflow`, which `SolverAdapter` does not
+  define — the setter lives on the `nodes` collection and there is no
+  `__getattr__` delegation, so the action was never applied. It now goes
+  through `adapter.nodes.set_lateral_inflow`, matching how the sibling
+  `OrificeSetting` actuator reaches `adapter.links`. Covered by an engine-free
+  regression test so the delegation path is checked without a built engine.
+
 ### Added — initial release surface (v0.1.0)
 
 #### Framework envs
@@ -25,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime factory: `OrificeSetting(link_ids)` →
   `Controls.set_link_setting` (defensive `np.clip` to bounds).
 - Design factories: `LinkRoughness`, `LinkLength`, `LinkDiameter`
-  (preserves cross-section shape), `NodeMaxDepth`.
+  (preserves cross-section shape; see G2 above for the shape-aware sizing
+  that superseded its original `geom1`-only behaviour), `NodeMaxDepth`.
 - Design factories applied **between** `Solver.open()` and
   `Solver.initialize()` so the engine picks up overridden values during
   data-structure setup.

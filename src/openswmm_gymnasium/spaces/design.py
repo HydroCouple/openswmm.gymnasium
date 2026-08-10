@@ -13,17 +13,18 @@ pre-initialize edit path:
 
   - L{LinkRoughness} — sets Manning's C{n}.
   - L{LinkLength}    — sets conduit length.
-  - L{LinkDiameter}  — sets cross-section C{geom1} (e.g. diameter for
-    L{CIRCULAR}); shape is preserved by reading the current C{xsect}
-    and rewriting only the first geometry parameter.
+  - L{LinkDiameter}  — resizes the cross-section to a target rise (full
+    depth), scaling every length-dimensioned geometry parameter of the
+    shape so the section stays geometrically similar.
   - L{NodeMaxDepth}  — sets node L{max_depth} (useful as a proxy for
     storage volume on tank-like nodes).
 
 Three further §3.1-family factories size the assets modelers most want to
 explore:
 
-  - L{StorageVolume} — sizes detention/retention storage via the FUNCTIONAL
-    surface-area relation (scalar footprint multiplier or raw C{(a,b,c)}).
+  - L{StorageVolume} — sizes detention/retention storage via either the
+    FUNCTIONAL surface-area relation or a TABULAR depth-area curve
+    (scalar footprint multiplier, or the raw C{(a,b,c)} triple).
   - L{LIDPlacement}  — sizes green-infrastructure / nature-based solutions
     and selects among candidate LID control types per subcatchment.
   - L{RDIIUnitHydrograph} — sizes RDII response by editing unit-hydrograph
@@ -235,15 +236,81 @@ class LinkLength:
             adapter.links.set_length(idx, float(v))
 
 
-class LinkDiameter:
-    """Cross-section primary geometry parameter (C{geom1}) for each link.
+# Which of the four cross-section geometry parameters carry a B{length}
+# dimension, per shape, and may therefore be scaled when the section is
+# resized. Keyed by L{openswmm.engine.XSectShape} member B{name} (the
+# ordinals were renumbered in engine 6.0, the names were not) and derived
+# from the engine's own C{CrossSection.geom_labels} table. Slot i is
+# C{geom(i+1)}.
+#
+# Everything omitted is dimensionless or an index: side slopes
+# (TRAPEZOIDAL), the POWER exponent, RECT_OPEN's sides-removed flag,
+# FORCE_MAIN's roughness coefficient, and the transect / shape-curve /
+# street table indices. Scaling any of those would change the shape, not
+# its size. A shape mapping to an empty tuple has no scalable dimension at
+# all — its geometry lives in a transect or street table — so it cannot be
+# sized by this factory.
+_RESIZABLE_GEOM_SLOTS: dict[str, tuple[int, ...]] = {
+    "CIRCULAR": (0,),                 # diameter
+    "FILLED_CIRCULAR": (0, 1),        # diameter, filled depth
+    "RECT_CLOSED": (0, 1),            # height, width
+    "RECT_OPEN": (0, 1),              # height, width
+    "TRAPEZOIDAL": (0, 1),            # height, bottom width
+    "TRIANGULAR": (0, 1),             # height, top width
+    "PARABOLIC": (0, 1),              # height, top width
+    "POWER": (0, 1),                  # height, top width
+    "MODBASKETHANDLE": (0, 1, 2),     # height, bottom width, top radius
+    "EGGSHAPED": (0,),                # height
+    "HORSESHOE": (0,),                # height
+    "GOTHIC": (0,),                   # height
+    "CATENARY": (0,),                 # height
+    "SEMIELLIPTICAL": (0,),           # height
+    "BASKETHANDLE": (0,),             # height
+    "SEMICIRCULAR": (0,),             # height
+    "RECT_TRIANG": (0, 1, 2),         # height, top width, triangle height
+    "RECT_ROUND": (0, 1, 2),          # height, top width, bottom radius
+    "HORIZ_ELLIPSE": (0, 1),          # height, width
+    "VERT_ELLIPSE": (0, 1),           # height, width
+    "ARCH": (0, 1),                   # height, width
+    "CUSTOM": (0,),                   # height (the shape curve is an index)
+    "FORCE_MAIN": (0,),               # diameter
+    "IRREGULAR": (),                  # transect-defined — not sizable
+    "STREET_XSECT": (),               # street-table-defined — not sizable
+    "DUMMY": (),                      # no geometry
+}
 
-    For a L{CIRCULAR} conduit this is the diameter; for other shapes
-    it is the first dimension per the engine's
-    L{openswmm.engine.CrossSection.geom_labels}. The shape itself is
-    B{preserved} — the factory reads the existing cross-section at
-    L{bind} time and rewrites only C{geom1} on L{apply}, leaving
-    C{shape}, C{geom2}, C{geom3}, C{geom4} unchanged.
+
+class LinkDiameter:
+    """Shape-aware cross-section sizing for each link.
+
+    The action value is the section's B{rise} — its full depth, in project
+    length units. For a L{CIRCULAR} conduit that is exactly the diameter, so
+    the factory reads as "pipe diameter" on the shape it is named for; for
+    every other shape it is the true full depth reported by the engine's
+    analytic cross-section geometry (L{openswmm.engine.XSectionGeometry}),
+    B{not} C{geom1}.
+
+    B{What is searched.} One scalar per link. On L{apply} the factory
+    computes C{f = target_rise / baseline_rise} and multiplies B{every
+    length-dimensioned geometry parameter of the shape} by C{f} — height and
+    width for a box culvert, height and bottom width for a trapezoid, height
+    and top width and bottom radius for a rect-round, and so on. The section
+    is therefore resized B{similarly}: aspect ratio, shape, and hydraulic
+    character are preserved and only the scale changes.
+
+    B{What is not searched.} The shape code itself; dimensionless parameters
+    (trapezoid side slopes, the POWER exponent, RECT_OPEN's sides-removed
+    flag, FORCE_MAIN's roughness coefficient); and index-valued parameters
+    (transect, shape-curve and street table references). Independent control
+    of, say, a box culvert's width and height is deliberately B{not} offered
+    — that would need a two-component-per-link space and a second bound
+    vector. Use L{LinkRoughness} / L{LinkLength} alongside this factory to
+    vary the other conduit dimensions.
+
+    Shapes whose geometry lives entirely in a transect or street table
+    (C{IRREGULAR}, C{STREET_XSECT}) and C{DUMMY} sections have no scalable
+    dimension; binding one raises L{ValueError} rather than silently
+    resizing nothing.
 
     @ivar name: Action-space key, default C{"link_diameter"}.
     """
@@ -258,9 +325,9 @@ class LinkDiameter:
         """
         @param link_ids: Symbolic link IDs to control.
         @type link_ids: sequence of str
-        @param low: Lower bound on C{geom1}.
+        @param low: Lower bound on the section rise (full depth).
         @type low: float
-        @param high: Upper bound on C{geom1}.
+        @param high: Upper bound on the section rise.
         @type high: float
         @param name: Action-space key.
         @type name: str
@@ -271,7 +338,8 @@ class LinkDiameter:
         self._high = float(high)
         self.name = name
         self._idxs: list[int] | None = None
-        self._cached_xsects: list[tuple[int, float, float, float, float]] | None = None
+        # Per link: (shape_code, geoms, resizable_slots, baseline_rise).
+        self._baseline: list[tuple[int, list[float], tuple[int, ...], float]] | None = None
         self._box = _make_box(self._low, self._high, len(self._link_ids))
 
     @property
@@ -279,17 +347,46 @@ class LinkDiameter:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
+        """Resolve indices and cache each section's baseline geometry.
+
+        @raise ValueError: If a target link's shape has no scalable
+            dimension, or its baseline rise is non-positive.
+        """
         self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
-        # Cache shape + ancillary geom; we only overwrite geom1 in apply.
-        self._cached_xsects = [tuple(adapter.links.get_xsect(idx)) for idx in self._idxs]
+        baseline: list[tuple[int, list[float], tuple[int, ...], float]] = []
+        for lid, idx in zip(self._link_ids, self._idxs, strict=True):
+            shape_code, *geoms = adapter.links.get_xsect(idx)
+            shape_name = adapter.links.get_xsect_shape_name(idx)
+            slots = _RESIZABLE_GEOM_SLOTS.get(shape_name)
+            if not slots:
+                raise ValueError(
+                    f"LinkDiameter cannot size link {lid!r}: cross-section "
+                    f"shape {shape_name} has no scalable length dimension "
+                    "(its geometry comes from a transect / street table). "
+                    "Remove it from link_ids."
+                )
+            rise = float(adapter.links.get_full_depth(idx))
+            if rise <= 0.0:
+                raise ValueError(
+                    f"LinkDiameter cannot size link {lid!r}: the engine "
+                    f"reports a full depth of {rise} for its {shape_name} "
+                    "cross-section."
+                )
+            baseline.append((int(shape_code), [float(g) for g in geoms], slots, rise))
+        self._baseline = baseline
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
-        if self._idxs is None or self._cached_xsects is None:
+        if self._idxs is None or self._baseline is None:
             raise RuntimeError("LinkDiameter.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
-        for idx, xsect, v in zip(self._idxs, self._cached_xsects, clipped, strict=True):
-            shape, _g1, g2, g3, g4 = xsect
-            adapter.links.set_xsect(idx, int(shape), float(v), float(g2), float(g3), float(g4))
+        for idx, (shape_code, geoms, slots, rise), v in zip(
+            self._idxs, self._baseline, clipped, strict=True
+        ):
+            factor = float(v) / rise
+            scaled = list(geoms)
+            for s in slots:
+                scaled[s] = geoms[s] * factor
+            adapter.links.set_xsect(idx, shape_code, *scaled)
 
 
 class NodeMaxDepth:
@@ -411,26 +508,46 @@ class SubcatchGWOutflowCoeff:
 
 
 class StorageVolume:
-    """Functional-storage sizing for each storage node (plan §3.1).
+    """Storage sizing for each storage node (plan §3.1).
 
-    Sizes detention / retention storage assets by editing the FUNCTIONAL
-    surface-area relation C{Area = a * Depth^b + c} through
-    L{openswmm.engine.StorageView.functional}. Two modes let a config trade
-    interpretability for expressiveness:
+    Sizes detention / retention storage assets by editing the node's
+    depth–area relation. Both of the engine's tabular storage
+    representations are supported, resolved per node at L{bind} from
+    L{openswmm.engine.StorageView.shape}:
+
+      - B{FUNCTIONAL} — the power-law relation C{Area = a * Depth^b + c},
+        edited through L{openswmm.engine.StorageView.functional}.
+      - B{TABULAR} — the node's depth–area curve, edited through
+        L{openswmm.engine.Tables} (the curve's areas are rewritten, its
+        depths are left alone).
+
+    Two modes let a config trade interpretability for expressiveness:
 
       - C{mode="scalar"} (default): one footprint B{multiplier} per node in
-        C{[low, high]}. On L{apply} the baseline C{a} and C{c} coefficients
-        (read at L{bind}) are scaled by the multiplier, leaving the exponent
-        C{b} untouched — so a factor C{f} scales stored volume by C{f} at
-        every depth. This is the simplest single-knob "how big is the tank"
-        design variable.
+        C{[low, high]}. On L{apply} the baseline surface areas read at
+        L{bind} are scaled by the multiplier — for FUNCTIONAL by scaling
+        C{a} and C{c} and leaving the exponent C{b} untouched, for TABULAR
+        by scaling every curve ordinate. Either way a factor C{f} scales
+        stored volume by C{f} at every depth. Works on both shapes, so a
+        mixed set of nodes can be searched with one action vector.
       - C{mode="coeffs"}: the raw C{(a, b, c)} triple per node, searched
         directly within per-coefficient bounds. C{low}/C{high} are length-3
         sequences C{(a, b, c)} applied to every node. Most expressive; lets
         the search reshape the depth–area curve, not just scale it.
+        B{FUNCTIONAL nodes only} — there is no C{(a, b, c)} to search on a
+        tabular node, and binding one in this mode raises.
 
-    Each target must be a STORAGE node whose shape is FUNCTIONAL; reading
-    C{functional} on a non-storage / tabular node raises in the engine.
+    Each target must be a STORAGE node whose shape is FUNCTIONAL or
+    TABULAR. The purely geometric shapes (C{CYLINDRICAL}, C{CONICAL},
+    C{PARABOLOID}, C{PYRAMIDAL}) are rejected at L{bind} with a message
+    naming the shape.
+
+    B{Note on shared curves.} A TABULAR node's curve is rewritten B{in
+    place} in the open model (the C{.inp} on disk is never touched, and
+    each episode re-opens from it). Two target nodes sharing one curve is
+    rejected at L{bind}; a curve shared with a node B{outside} the target
+    set is not detected, and that node is resized too. Give each searchable
+    basin its own curve.
 
     @ivar name: Action-space key, default C{"storage_volume"}.
     """
@@ -460,7 +577,10 @@ class StorageVolume:
         self.name = name
         n = len(self._node_ids)
         self._idxs: list[int] | None = None
-        self._baseline: list[tuple[float, float, float]] | None = None
+        # Per node, one of:
+        #   ("FUNCTIONAL", (a, b, c))
+        #   ("TABULAR", (curve_idx, [(depth, area), ...]))
+        self._baseline: list[tuple[str, object]] | None = None
 
         if mode == "scalar":
             self._low = float(low)  # type: ignore[arg-type]
@@ -483,12 +603,49 @@ class StorageVolume:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
+        """Resolve indices and cache each node's baseline depth–area relation.
+
+        @raise ValueError: If a target node's storage shape is neither
+            FUNCTIONAL nor TABULAR, if C{mode="coeffs"} is used with a
+            TABULAR node, or if two targets share one storage curve.
+        """
         self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
-        # Baseline functional triple; scalar mode scales it, coeffs mode
-        # overwrites it (cached anyway so bind is uniform across modes).
-        self._baseline = [
-            tuple(adapter.nodes.get_storage_functional(idx)) for idx in self._idxs
-        ]
+        baseline: list[tuple[str, object]] = []
+        seen_curves: dict[int, str] = {}
+        for nid, idx in zip(self._node_ids, self._idxs, strict=True):
+            shape = adapter.nodes.get_storage_shape(idx)
+            if shape == "FUNCTIONAL":
+                baseline.append(
+                    ("FUNCTIONAL", tuple(adapter.nodes.get_storage_functional(idx)))
+                )
+            elif shape == "TABULAR":
+                if self._mode == "coeffs":
+                    raise ValueError(
+                        f"StorageVolume(mode='coeffs') cannot size node {nid!r}: "
+                        "its storage shape is TABULAR, which has no (a, b, c) "
+                        "triple. Use mode='scalar'."
+                    )
+                curve_idx = int(adapter.nodes.get_storage_curve(idx))
+                prior = seen_curves.get(curve_idx)
+                if prior is not None:
+                    raise ValueError(
+                        f"StorageVolume: nodes {prior!r} and {nid!r} share "
+                        f"storage curve index {curve_idx}; sizing them "
+                        "independently would rewrite the same curve twice. "
+                        "Give each searchable basin its own curve."
+                    )
+                seen_curves[curve_idx] = nid
+                points = [
+                    (float(x), float(y))
+                    for x, y in adapter.tables.get_curve_points(curve_idx)
+                ]
+                baseline.append(("TABULAR", (curve_idx, points)))
+            else:
+                raise ValueError(
+                    f"StorageVolume cannot size node {nid!r}: storage shape "
+                    f"{shape} is neither FUNCTIONAL nor TABULAR."
+                )
+        self._baseline = baseline
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._baseline is None:
@@ -496,12 +653,20 @@ class StorageVolume:
         arr = np.asarray(value, dtype=np.float32)
         if self._mode == "scalar":
             factors = np.clip(arr, self._low, self._high)
-            for idx, base, f in zip(self._idxs, self._baseline, factors, strict=True):
-                a0, b0, c0 = base
-                adapter.nodes.set_storage_functional(
-                    idx, float(a0) * float(f), float(b0), float(c0) * float(f)
-                )
-        else:  # coeffs
+            for idx, (shape, base), f in zip(
+                self._idxs, self._baseline, factors, strict=True
+            ):
+                if shape == "FUNCTIONAL":
+                    a0, b0, c0 = base  # type: ignore[misc]
+                    adapter.nodes.set_storage_functional(
+                        idx, float(a0) * float(f), float(b0), float(c0) * float(f)
+                    )
+                else:  # TABULAR — scale the curve's areas, keep its depths.
+                    curve_idx, points = base  # type: ignore[misc]
+                    adapter.tables.set_curve_points(
+                        curve_idx, [(d, a * float(f)) for d, a in points]
+                    )
+        else:  # coeffs — FUNCTIONAL only, enforced at bind.
             triples = arr.reshape(len(self._idxs), 3)
             triples = np.clip(triples, self._coeff_low, self._coeff_high)
             for idx, (a, b, c) in zip(self._idxs, triples, strict=True):

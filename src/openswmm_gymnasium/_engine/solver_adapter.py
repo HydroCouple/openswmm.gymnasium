@@ -18,6 +18,10 @@ the minimum surface the rest of the package needs:
   - Hard guard against C{openswmm.legacy.engine.Solver} — passing a
     legacy solver into the adapter raises
     L{LegacySolverRejectedError}. Plan §0 #7 / §2.3.
+  - Explicit engine B{capability probe} (L{require_engine_capabilities})
+    run at adapter construction, so a too-old / partially-built
+    C{openswmm.engine} fails with a message naming the missing symbols
+    rather than an C{AttributeError} deep inside a rollout.
 
 The adapter does B{not} add any high-level domain logic (observations,
 rewards, action application). Those live in their respective modules
@@ -34,13 +38,14 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import openswmm.engine as _engine
 from openswmm.engine import (
     Controls,
     EngineState,
     Gages,
     HotStart,
-    Infrastructure,
     Inflows,
+    Infrastructure,
     LidType,
     Links,
     Nodes,
@@ -89,6 +94,93 @@ def _reject_legacy(solver: object) -> None:
             f"openswmm.engine.Solver (v6); got {type(solver).__module__}."
             f"{type(solver).__name__}. The legacy v5 solver under "
             "openswmm.legacy.engine is not supported."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Engine capability probe
+# ---------------------------------------------------------------------------
+#
+# ``pyproject.toml`` pins ``openswmm>=6.0.0.dev2`` with no upper bound, and the
+# C API is still moving. Rather than a hard version floor — which a partial
+# build (e.g. ``OPENSWMM_BUILD_2D=OFF``) would satisfy while still lacking a
+# symbol, and which a newer-but-compatible build would fail — this package
+# probes for the specific engine surface it calls. Optional surfaces are
+# deliberately *not* listed: the 2D module is probed at
+# L{SolverAdapter.surface2d} instead, so 1D-only builds stay usable.
+
+_REQUIRED_MODULE_ATTRS: tuple[str, ...] = (
+    "Pollutants",       # G4 pollutant observations / TSSLoad
+    "Statistics",       # G5 engine statistics in reward terms
+    "Tables",           # G3 tabular (curve) storage design
+    "XSectionGeometry", # G2 shape-aware cross-section sizing
+    "StorageShape",
+)
+
+# (class name, attribute) pairs on already-imported engine classes.
+_REQUIRED_CLASS_ATTRS: tuple[tuple[str, str], ...] = (
+    ("Solver", "flow_units"),
+    ("Solver", "unit_system"),
+    ("Solver", "set_lenient_open"),
+    ("Solver", "open_errors"),
+    ("Solver", "open_warnings"),
+    ("Solver", "stride"),
+    ("Nodes", "qualities"),
+    ("Links", "qualities"),
+)
+
+
+class EngineCapabilityError(RuntimeError):
+    """Raised when the installed C{openswmm.engine} lacks a required symbol.
+
+    Names every missing symbol so the failure is actionable instead of
+    surfacing as an C{AttributeError} mid-rollout. Plan §4.5 / G5.
+    """
+
+
+def _missing_engine_capabilities(module) -> list[str]:
+    """Return the dotted names of required engine symbols C{module} lacks.
+
+    Pure function over a namespace object so it can be unit-tested without
+    a real engine build.
+
+    @param module: The C{openswmm.engine} module (or a stand-in namespace).
+    @rtype: list[str]
+    """
+    missing: list[str] = []
+    for name in _REQUIRED_MODULE_ATTRS:
+        if not hasattr(module, name):
+            missing.append(f"openswmm.engine.{name}")
+    for cls_name, attr in _REQUIRED_CLASS_ATTRS:
+        cls = getattr(module, cls_name, None)
+        if cls is None:
+            missing.append(f"openswmm.engine.{cls_name}")
+        elif not hasattr(cls, attr):
+            missing.append(f"openswmm.engine.{cls_name}.{attr}")
+    return missing
+
+
+def require_engine_capabilities(module=None) -> None:
+    """Verify the installed engine exposes everything this package calls.
+
+    Called once per L{SolverAdapter} construction (the result is not cached —
+    the check is a handful of C{hasattr} calls).
+
+    @param module: Namespace to probe. Defaults to C{openswmm.engine}.
+    @raise EngineCapabilityError: If any required symbol is absent.
+    """
+    if module is None:
+        module = _engine
+    missing = _missing_engine_capabilities(module)
+    if missing:
+        version = getattr(module, "__version__", "unknown")
+        raise EngineCapabilityError(
+            "The installed openswmm.engine (version "
+            f"{version}) is missing "
+            f"{len(missing)} symbol(s) openswmm.gymnasium requires: "
+            + ", ".join(missing)
+            + ". Upgrade the openswmm package, or rebuild the engine with the "
+            "corresponding modules enabled."
         )
 
 
@@ -159,6 +251,35 @@ class _NodesCompat:
     def set_storage_functional(self, idx: int, a: float, b: float, c: float) -> None:
         # swmm_node_set_storage_functional; STORAGE + FUNCTIONAL shape only.
         self._col[idx].storage.functional = (a, b, c)
+
+    def get_storage_shape(self, idx: int) -> str:
+        # StorageShape member name, e.g. "FUNCTIONAL" / "TABULAR" /
+        # "CYLINDRICAL". Returned as the name so consumers never need the
+        # engine enum (which is only importable here). Raises on a
+        # non-storage node.
+        return str(self._col[idx].storage.shape.name)
+
+    def get_storage_curve(self, idx: int) -> int:
+        # Index of the node's depth->area storage curve, or -1 when the
+        # node's shape is not TABULAR.
+        return int(self._col[idx].storage.curve)
+
+    def set_storage_curve(self, idx: int, curve_idx: int) -> None:
+        # swmm_node_set_storage_curve; STORAGE + TABULAR shape only.
+        self._col[idx].storage.curve = int(curve_idx)
+
+    def get_quality(self, idx: int, pollutant: int | str) -> float:
+        # Pollutant concentration at the node, in the pollutant's
+        # concentration units (swmm_node_get_quality).
+        return self._col[idx].quality(pollutant)
+
+    def qualities(self, pollutant: int | str):
+        """Whole-network concentration array for one pollutant.
+
+        @param pollutant: Pollutant index or id.
+        @rtype: numpy.ndarray
+        """
+        return self._col.qualities(pollutant)
 
     def array(self, name: str):
         """Return a whole-network bulk array property of the node collection.
@@ -232,6 +353,37 @@ class _LinksCompat:
     ) -> None:
         # The v6 xsect setter accepts a (shape, g1, g2, g3, g4) tuple.
         self._col[idx].xsect = (shape, g1, g2, g3, g4)
+
+    def get_xsect_shape_name(self, idx: int) -> str:
+        # XSectShape member name, e.g. "CIRCULAR" / "RECT_CLOSED". Names
+        # rather than codes: the shape ordinals were renumbered in 6.0, and
+        # consumers outside this module cannot import the enum.
+        return str(self._col[idx].xsect.info().shape_name)
+
+    def get_full_depth(self, idx: int) -> float:
+        """True full depth (rise) of the link's cross-section.
+
+        Delegates to the engine's analytic cross-section geometry
+        (L{openswmm.engine.XSectionGeometry}), so the value is exact for
+        every shape — unlike C{geom1}, which is the rise only for shapes
+        whose first geometry parameter happens to be the height.
+
+        @rtype: float
+        """
+        return float(self._col[idx].xsect.geometry().full_depth)
+
+    def get_quality(self, idx: int, pollutant: int | str) -> float:
+        # Pollutant concentration in the link, in the pollutant's
+        # concentration units (swmm_link_get_quality).
+        return self._col[idx].quality(pollutant)
+
+    def qualities(self, pollutant: int | str):
+        """Whole-network concentration array for one pollutant.
+
+        @param pollutant: Pollutant index or id.
+        @rtype: numpy.ndarray
+        """
+        return self._col.qualities(pollutant)
 
     def array(self, name: str):
         """Return a whole-network bulk array property of the link collection.
@@ -428,6 +580,78 @@ class _InflowsCompat:
         return int(self._inflows.rdii_count)
 
 
+class _PollutantsCompat:
+    """Pollutant catalogue accessor over the v6 ``Pollutants`` collection.
+
+    Read-only identity surface: the observation collectors and the
+    L{openswmm_gymnasium.rewards.terms.TSSLoad} term resolve a symbolic
+    pollutant id to its engine index once at bind time and then read
+    concentrations through the node / link collections.
+    """
+
+    __slots__ = ("_col",)
+
+    def __init__(self, col) -> None:
+        self._col = col
+
+    def get_index(self, pollutant_id: str) -> int:
+        return self._col.get_index(pollutant_id)
+
+
+class _TablesCompat:
+    """Curve accessor over the v6 ``Tables`` collection.
+
+    Surfaces the depth-area curve editing that tabular-storage design
+    (L{openswmm_gymnasium.spaces.design.StorageVolume}) needs: read the
+    baseline points once at bind, rewrite them on apply. Table edits are
+    valid in the OPENED (pre-initialize) state.
+    """
+
+    __slots__ = ("_col",)
+
+    def __init__(self, col) -> None:
+        self._col = col
+
+    def get_curve_points(self, idx: int):
+        """Return the curve's points as an C{(n, 2)} float array.
+
+        @rtype: numpy.ndarray
+        """
+        return self._col.as_curve(idx).points
+
+    def set_curve_points(self, idx: int, points) -> None:
+        """Replace every point of the curve at C{idx}.
+
+        @param points: Iterable of C{(x, y)} pairs.
+        """
+        curve = self._col.as_curve(idx)
+        curve.clear()
+        for x, y in points:
+            curve.add_point(float(x), float(y))
+
+
+class _StatisticsCompat:
+    """Scalar simulation-statistics accessor over the v6 ``Statistics`` API.
+
+    Every value is B{cumulative from the start of the simulation}, updated
+    at the engine's routing-step resolution. Reward terms that want a
+    per-env-step contribution difference successive reads themselves.
+    """
+
+    __slots__ = ("_stats",)
+
+    def __init__(self, stats) -> None:
+        self._stats = stats
+
+    def node_vol_flooded(self, idx: int) -> float:
+        # Cumulative flooded volume at the node, project volume units.
+        return float(self._stats.node_vol_flooded_at(idx))
+
+    def link_max_flow(self, idx: int) -> float:
+        # Maximum |flow| seen in the link so far, project flow units.
+        return float(self._stats.link_max_flow_at(idx))
+
+
 class _Surface2DCompat:
     """Read-only 2D surface accessor over ``Solver.surface2d``.
 
@@ -504,7 +728,10 @@ class SolverAdapter:
         @type solver: L{openswmm.engine.Solver} or C{None}
         @raise LegacySolverRejectedError: If C{solver} is a legacy v5
             singleton solver.
+        @raise EngineCapabilityError: If the installed
+            C{openswmm.engine} is missing a symbol this package requires.
         """
+        require_engine_capabilities()
         self._inp = str(Path(inp))
         self._rpt = "" if rpt is None else str(Path(rpt))
         self._out = "" if out is None else str(Path(out))
@@ -526,6 +753,9 @@ class SolverAdapter:
         self._gages: Gages | None = None
         self._infrastructure: _InfrastructureCompat | None = None
         self._inflows: _InflowsCompat | None = None
+        self._pollutants: _PollutantsCompat | None = None
+        self._tables: _TablesCompat | None = None
+        self._statistics: _StatisticsCompat | None = None
         self._surface2d: _Surface2DCompat | None = None
 
     # ------------------------------------------------------------------
@@ -720,17 +950,15 @@ class SolverAdapter:
     def flow_units(self) -> str:
         """The model's flow-unit token, e.g. C{"CFS"} / C{"CMS"}.
 
-        Prefers the engine's C{Solver.flow_units} property; falls back to
-        the raw C{FLOW_UNITS} option string for engine builds that predate
-        that accessor. Returned as the upper-case token name.
+        Returned as the upper-case token name. C{Solver.flow_units} is a
+        probed requirement (see L{require_engine_capabilities}), so there
+        is no fallback path.
 
         @rtype: str
         """
-        fu = getattr(self._solver, "flow_units", None)
-        if fu is not None:
-            # FlowUnits enum -> its member name (e.g. "CFS").
-            return getattr(fu, "name", str(fu)).upper()
-        return self._solver.options["FLOW_UNITS"].strip().upper()
+        fu = self._solver.flow_units
+        # FlowUnits enum -> its member name (e.g. "CFS").
+        return getattr(fu, "name", str(fu)).upper()
 
     @property
     def unit_system(self) -> str:
@@ -743,10 +971,7 @@ class SolverAdapter:
 
         @rtype: str
         """
-        us = getattr(self._solver, "unit_system", None)
-        if us is not None:
-            return str(us)
-        return "US" if self.flow_units in ("CFS", "GPM", "MGD") else "SI"
+        return str(self._solver.unit_system)
 
     @property
     def open_errors(self) -> list[str]:
@@ -926,6 +1151,36 @@ class SolverAdapter:
         if self._inflows is None:
             self._inflows = _InflowsCompat(Inflows(self._solver))
         return self._inflows
+
+    @property
+    def pollutants(self) -> _PollutantsCompat:
+        """Lazily-constructed, cached pollutant catalogue accessor.
+
+        @rtype: L{_PollutantsCompat}
+        """
+        if self._pollutants is None:
+            self._pollutants = _PollutantsCompat(_engine.Pollutants(self._solver))
+        return self._pollutants
+
+    @property
+    def tables(self) -> _TablesCompat:
+        """Lazily-constructed, cached curve / time-series table accessor.
+
+        @rtype: L{_TablesCompat}
+        """
+        if self._tables is None:
+            self._tables = _TablesCompat(_engine.Tables(self._solver))
+        return self._tables
+
+    @property
+    def statistics(self) -> _StatisticsCompat:
+        """Lazily-constructed, cached simulation-statistics accessor.
+
+        @rtype: L{_StatisticsCompat}
+        """
+        if self._statistics is None:
+            self._statistics = _StatisticsCompat(_engine.Statistics(self._solver))
+        return self._statistics
 
     # ------------------------------------------------------------------
     # Context manager

@@ -29,6 +29,7 @@ from openswmm_gymnasium.rewards.terms import (
     RewardTerm,
     SetpointSmoothness,
     StorageUnderUtilization,
+    TSSLoad,
     UncontrolledDischarge,
 )
 
@@ -44,6 +45,7 @@ RewardRegistry.register("setpoint_smoothness", SetpointSmoothness)
 RewardRegistry.register("uncontrolled_discharge", UncontrolledDischarge)
 RewardRegistry.register("storage_underutilization", StorageUnderUtilization)
 RewardRegistry.register("pump_energy", PumpEnergy)
+RewardRegistry.register("tss_load", TSSLoad)
 
 
 __all__ = [
@@ -57,4 +59,5 @@ __all__ = [
     "UncontrolledDischarge",
     "StorageUnderUtilization",
     "PumpEnergy",
+    "TSSLoad",
 ]

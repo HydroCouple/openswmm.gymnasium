@@ -8,8 +8,11 @@ flat float32 vector.
 P2 ships ten collectors covering the most common SWMM-RL feature sets:
 node depths/heads/inflows/overflows, link flows/depths/settings,
 subcatchment runoff, gage rainfall, and a clock collector. Forecast
-injection and pollutant-concentration collectors land in P5
-(forecast wrapper) and the pollutant phase respectively.
+injection lands in P5 (forecast wrapper).
+
+Water-quality observation is served by
+L{ObservationBuilder.add_pollutant_concentration} (node concentrations,
+per plan §4) and L{ObservationBuilder.add_link_pollutant_concentration}.
 
 The engine's 2D surface is exposed only through the flat
 selected-vertex collector L{ObservationBuilder.add_2d_vertex_depths}
@@ -343,6 +346,65 @@ class _RainfallCollector(_ScalarReadCollector):
 
 
 # =============================================================================
+# Water-quality collectors
+# =============================================================================
+
+
+class _PollutantConcentrationCollector(_ScalarReadCollector):
+    """Shared base for node / link pollutant-concentration collectors.
+
+    One feature per element, reporting the concentration of a single
+    pollutant in that pollutant's own concentration units (C{mg/L},
+    C{ug/L} or C{#/L}, per the model's C{[POLLUTANTS]} declaration). Add
+    one collector per pollutant of interest.
+
+    The symbolic pollutant id is resolved to its engine index at L{bind},
+    so the per-step read never does a string lookup.
+    """
+
+    def __init__(self, ids: Sequence[str], pollutant: str) -> None:
+        super().__init__(ids)
+        if not pollutant:
+            raise ValueError(f"{self._kind_label} requires a pollutant id")
+        self._pollutant = str(pollutant)
+        self._pollutant_idx: int | None = None
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._pollutant_idx = adapter.pollutants.get_index(self._pollutant)
+        super().bind(adapter)
+
+
+class _NodeQualityCollector(_PollutantConcentrationCollector):
+    """Pollutant concentration at each node."""
+
+    _kind_label = "add_pollutant_concentration"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.nodes.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.nodes.get_quality(idx, self._pollutant_idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.nodes.qualities(self._pollutant_idx)
+
+
+class _LinkQualityCollector(_PollutantConcentrationCollector):
+    """Pollutant concentration in each link."""
+
+    _kind_label = "add_link_pollutant_concentration"
+
+    def _resolve_idxs(self, adapter):
+        return [adapter.links.get_index(i) for i in self._ids]
+
+    def _read_scalar(self, adapter, idx):
+        return adapter.links.get_quality(idx, self._pollutant_idx)
+
+    def _bulk_array(self, adapter):
+        return adapter.links.qualities(self._pollutant_idx)
+
+
+# =============================================================================
 # 2D surface collectors (integer vertex indices, not symbolic IDs)
 # =============================================================================
 
@@ -619,6 +681,50 @@ class ObservationBuilder:
         @rtype: L{ObservationBuilder}
         """
         self._collectors.append(_RainfallCollector(gage_ids))
+        return self
+
+    # ----- Water-quality features ----------------------------------------
+
+    def add_pollutant_concentration(
+        self, node_ids: Sequence[str], pollutant: str
+    ) -> ObservationBuilder:
+        """Append a node pollutant-concentration collector (plan §4).
+
+        One feature per node, reporting the concentration of C{pollutant}
+        in that pollutant's declared concentration units (C{mg/L},
+        C{ug/L}, C{#/L}). Call once per pollutant of interest.
+
+        Requires the model to run water quality — the pollutant must be
+        declared in C{[POLLUTANTS]}, or L{bind} raises.
+
+        @param node_ids: Node IDs whose concentrations to observe.
+        @type node_ids: sequence of str
+        @param pollutant: Symbolic pollutant ID, e.g. C{"TSS"}.
+        @type pollutant: str
+        @return: This builder, for chaining.
+        @rtype: L{ObservationBuilder}
+        @raise ValueError: If C{node_ids} is empty or C{pollutant} is blank.
+        """
+        self._collectors.append(_NodeQualityCollector(node_ids, pollutant))
+        return self
+
+    def add_link_pollutant_concentration(
+        self, link_ids: Sequence[str], pollutant: str
+    ) -> ObservationBuilder:
+        """Append a link pollutant-concentration collector.
+
+        The link-side counterpart of L{add_pollutant_concentration}; the
+        natural observation to pair with a load-based objective such as
+        L{openswmm_gymnasium.rewards.terms.TSSLoad}, which is computed
+        from link flow and link concentration.
+
+        @param link_ids: Link IDs whose concentrations to observe.
+        @type link_ids: sequence of str
+        @param pollutant: Symbolic pollutant ID, e.g. C{"TSS"}.
+        @type pollutant: str
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_LinkQualityCollector(link_ids, pollutant))
         return self
 
     # ----- 2D surface features -------------------------------------------

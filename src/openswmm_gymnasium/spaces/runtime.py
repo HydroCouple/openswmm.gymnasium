@@ -117,7 +117,7 @@ class NodeLateralInflow:
     """Box action injecting a controllable lateral inflow at one or more nodes.
 
     Each component is a flow rate in C{[0, max_inflow]} (project flow units),
-    applied via L{SolverAdapter.set_lateral_inflow} (the engine's
+    applied via C{adapter.nodes.set_lateral_inflow} (the engine's
     ``swmm_node_set_lateral_inflow``). Useful for controllable sources,
     pumped diversions, or adversarial inflow scenarios in RL tasks.
 
@@ -192,4 +192,4 @@ class NodeLateralInflow:
             raise RuntimeError("NodeLateralInflow.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, self._max_inflow)
         for idx, v in zip(self._node_idxs, clipped, strict=True):
-            adapter.set_lateral_inflow(idx, float(v))
+            adapter.nodes.set_lateral_inflow(idx, float(v))
