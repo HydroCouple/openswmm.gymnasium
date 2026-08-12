@@ -1,25 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for L{openswmm_gymnasium.wrappers.MaskDesignAction} and
 L{openswmm_gymnasium.wrappers.MaskRuntimeAction}.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
 
+import unittest
+
 import gymnasium as gym
 import numpy as np
-import pytest
 
 from openswmm_gymnasium.wrappers import MaskDesignAction, MaskRuntimeAction
 from tests.unit._wrapper_helpers import DictBoxEnv
 
 
-class TestMaskRuntimeAction:
+class TestMaskRuntimeAction(unittest.TestCase):
     def test_action_space_flattens_to_design(self):
         env = MaskRuntimeAction(DictBoxEnv())
-        assert env.action_space.spaces.keys() == {"d"}
+        self.assertEqual(env.action_space.spaces.keys(), {"d"})
 
     def test_step_fills_runtime_with_midpoint(self):
         base = DictBoxEnv()
@@ -31,10 +48,10 @@ class TestMaskRuntimeAction:
         np.testing.assert_allclose(base.last_action["design"]["d"], [3.0, 4.0])
 
 
-class TestMaskDesignAction:
+class TestMaskDesignAction(unittest.TestCase):
     def test_action_space_flattens_to_runtime(self):
         env = MaskDesignAction(DictBoxEnv())
-        assert env.action_space.spaces.keys() == {"r"}
+        self.assertEqual(env.action_space.spaces.keys(), {"r"})
 
     def test_design_sampled_at_reset_and_frozen(self):
         base = DictBoxEnv()
@@ -55,11 +72,11 @@ class TestMaskDesignAction:
 
     def test_step_before_reset_raises(self):
         env = MaskDesignAction(DictBoxEnv())
-        with pytest.raises(RuntimeError, match="before reset"):
+        with self.assertRaisesRegex(RuntimeError, "before reset"):
             env.step({"r": np.array([0.5], dtype=np.float32)})
 
 
-class TestTypeErrors:
+class TestTypeErrors(unittest.TestCase):
     def test_non_dict_action_space_raises(self):
         class _PlainEnv(gym.Env):
             action_space = gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32)
@@ -71,5 +88,9 @@ class TestTypeErrors:
             def step(self, a):
                 return np.zeros(1, dtype=np.float32), 0.0, True, False, {}
 
-        with pytest.raises(TypeError, match="Dict action space"):
+        with self.assertRaisesRegex(TypeError, "Dict action space"):
             MaskRuntimeAction(_PlainEnv())
+
+
+if __name__ == "__main__":
+    unittest.main()

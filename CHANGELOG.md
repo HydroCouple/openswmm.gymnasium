@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Relicensed from MIT to the Apache License, Version 2.0.** `LICENSE` now
+  carries the full Apache 2.0 text and a new `NOTICE` file records the required
+  attribution, including the USEPA SWMM public domain provenance inherited
+  through the engine. All first-party source headers carry the Apache 2.0
+  boilerplate and an `SPDX-License-Identifier: Apache-2.0` tag. `pyproject.toml`
+  declares `license = "Apache-2.0"` with `license-files = ["LICENSE", "NOTICE"]`,
+  and `CLA.md` (v1.1), `CONTRIBUTING.md` and `README.md` were updated to match.
+
 ### Added — API gap-fill phases G2–G5
 
 - **Shape-aware cross-section sizing (G2).** `LinkDiameter` now resizes a

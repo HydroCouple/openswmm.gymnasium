@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Hypervolume indicator.
 
@@ -8,7 +24,7 @@ dependency on a third-party MOO library.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -100,13 +116,18 @@ def normalized_hypervolume(
     """Hypervolume in normalised C{[0, 1]^d} space.
 
     Normalises C{points} via L{normalize} so the reference becomes
-    C{(1, ..., 1)} and the ideal becomes C{(0, ..., 0)}; the returned
-    value is therefore in C{[0, 1]} regardless of the original
-    objective scales.
+    C{(1, ..., 1)} and the ideal becomes C{(0, ..., 0)}, then clamps to
+    C{[0, 1]^d}: points beyond the ideal (better than best-case) are
+    pinned to the ideal corner and points beyond the reference (worse
+    than the nadir) to the reference face, so the returned value is in
+    C{[0, 1]} regardless of the original objective scales.
 
     @rtype: float
     """
     norm = normalize(points, ideal, reference)
+    # Clamp into the unit hypercube so cumulative costs that overshoot the
+    # [ideal, reference] envelope can't inflate the score past 1 (or below 0).
+    norm = np.clip(norm, 0.0, 1.0)
     one_ref = np.ones(np.asarray(reference).shape[0], dtype=float)
     return hypervolume(norm, one_ref, method=method, mc_samples=mc_samples, rng=rng)
 

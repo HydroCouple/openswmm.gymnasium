@@ -106,7 +106,7 @@ jobs:
       - name: Upload Pages artefact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: site/
+          path: site/openswmm_gymnasium/
 
       - name: Deploy to GitHub Pages
         id: deployment

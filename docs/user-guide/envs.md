@@ -38,6 +38,30 @@ the cumulative-cost vector.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmMORTCEnv`.
 
+## `SwmmControlEnv` — policy-parameter search
+
+A single-step env whose **action is a controller policy-parameter vector**,
+not a per-step action or a model design. On `step()` it decodes the vector
+into a controller, runs the entire simulation under that controller, and
+returns the operational objective totals in `info["reward_components"]`. The
+optimizer searches the vector exactly as it searches a design vector — one
+decision vector per episode — which is how a reactive control policy's static
+parameters get tuned to trace an operational cost curve.
+
+It is controller-agnostic, driving any
+{py:class}`~openswmm_gymnasium.control.base.Controller`:
+
+- {py:class}`~openswmm_gymnasium.control.MarketController` — reactive
+  agent-based capacity market (cost curves + PID).
+- {py:class}`~openswmm_gymnasium.control.ControlCurveController` — reactive
+  piecewise-linear breakpoint curves
+  ({py:class}`~openswmm_gymnasium.spaces.control_curve.ControlCurvePolicySpace`);
+  see {doc}`/user-guide/action_spaces`.
+- {py:class}`~openswmm_gymnasium.control.ScheduleController` — open-loop
+  per-structure setting schedule.
+
+See {py:class}`openswmm_gymnasium.envs.SwmmControlEnv`.
+
 ## Registered IDs
 
 ```{list-table}

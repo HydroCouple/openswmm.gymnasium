@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for L{openswmm_gymnasium.spaces.design} factories.
 
 Engine-touching behaviour (the actual setter calls) is exercised by
@@ -6,13 +22,14 @@ validation, and bind-before-apply enforcement.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
 
+import unittest
+
 import numpy as np
-import pytest
 from gymnasium import spaces
 
 from openswmm_gymnasium.spaces.design import (
@@ -36,68 +53,76 @@ _BOX_FACTORIES = [
 ]
 
 
-class TestConstruction:
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_default_name(self, cls, name, kwarg, ids):
-        f = (
-            cls(ids, low=0.01, high=0.05, **{kwarg: ids})
-            if False
-            else cls(ids, low=0.01, high=0.05)
-        )
-        assert f.name == name
+class TestConstruction(unittest.TestCase):
+    def test_default_name(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids, low=0.01, high=0.05)
+                self.assertEqual(f.name, name)
 
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_empty_ids_raises(self, cls, name, kwarg, ids):
-        with pytest.raises(ValueError, match="at least one"):
-            cls([], low=0.0, high=1.0)
+    def test_empty_ids_raises(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaisesRegex(ValueError, "at least one"):
+                    cls([], low=0.0, high=1.0)
 
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_invalid_bounds_raise(self, cls, name, kwarg, ids):
-        with pytest.raises(ValueError, match="strictly greater"):
-            cls(ids, low=1.0, high=1.0)
-        with pytest.raises(ValueError, match="strictly greater"):
-            cls(ids, low=2.0, high=1.0)
-
-
-class TestSpace:
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_box_shape(self, cls, name, kwarg, ids):
-        f = cls(ids * 3, low=0.0, high=1.0)
-        s = f.space
-        assert isinstance(s, spaces.Box)
-        assert s.shape == (3,)
-        assert s.dtype == np.float32
-
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_bounds_propagate(self, cls, name, kwarg, ids):
-        f = cls(ids, low=0.25, high=0.75)
-        s = f.space
-        assert np.allclose(s.low, [0.25])
-        assert np.allclose(s.high, [0.75])
-
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_sample_in_bounds(self, cls, name, kwarg, ids):
-        f = cls(ids, low=0.1, high=0.9)
-        for _ in range(20):
-            v = f.space.sample()
-            assert v.shape == (1,)
-            assert (v >= 0.1).all() and (v <= 0.9).all()
+    def test_invalid_bounds_raise(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                with self.assertRaisesRegex(ValueError, "strictly greater"):
+                    cls(ids, low=1.0, high=1.0)
+                with self.assertRaisesRegex(ValueError, "strictly greater"):
+                    cls(ids, low=2.0, high=1.0)
 
 
-class TestApplyRequiresBind:
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_apply_before_bind_raises(self, cls, name, kwarg, ids):
-        f = cls(ids, low=0.0, high=1.0)
+class TestSpace(unittest.TestCase):
+    def test_box_shape(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids * 3, low=0.0, high=1.0)
+                s = f.space
+                self.assertIsInstance(s, spaces.Box)
+                self.assertEqual(s.shape, (3,))
+                self.assertEqual(s.dtype, np.float32)
 
-        class _Stub:
-            pass
+    def test_bounds_propagate(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids, low=0.25, high=0.75)
+                s = f.space
+                self.assertTrue(np.allclose(s.low, [0.25]))
+                self.assertTrue(np.allclose(s.high, [0.75]))
 
-        with pytest.raises(RuntimeError, match="bind"):
-            f.apply(_Stub(), np.array([0.5], dtype=np.float32))
+    def test_sample_in_bounds(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids, low=0.1, high=0.9)
+                for _ in range(20):
+                    v = f.space.sample()
+                    self.assertEqual(v.shape, (1,))
+                    self.assertTrue((v >= 0.1).all() and (v <= 0.9).all())
 
 
-class TestProtocolConformance:
-    @pytest.mark.parametrize("cls, name, kwarg, ids", _BOX_FACTORIES)
-    def test_satisfies_factory_protocol(self, cls, name, kwarg, ids):
-        f = cls(ids, low=0.0, high=1.0)
-        assert isinstance(f, DesignActionFactory)
+class TestApplyRequiresBind(unittest.TestCase):
+    def test_apply_before_bind_raises(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids, low=0.0, high=1.0)
+
+                class _Stub:
+                    pass
+
+                with self.assertRaisesRegex(RuntimeError, "bind"):
+                    f.apply(_Stub(), np.array([0.5], dtype=np.float32))
+
+
+class TestProtocolConformance(unittest.TestCase):
+    def test_satisfies_factory_protocol(self):
+        for cls, name, kwarg, ids in _BOX_FACTORIES:
+            with self.subTest(cls=cls.__name__):
+                f = cls(ids, low=0.0, high=1.0)
+                self.assertIsInstance(f, DesignActionFactory)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -164,4 +164,4 @@ Each environment lives under `src/openswmm_gymnasium/envs/`. To add a new enviro
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE) and you have signed the [CLA](CLA.md).
+By contributing, you agree that your contributions will be licensed under the [Apache License, Version 2.0](LICENSE) and you have signed the [CLA](CLA.md).

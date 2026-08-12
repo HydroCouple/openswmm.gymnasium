@@ -5,7 +5,7 @@ Plan §6A.
 Each scenario is a small, hand-authored SWMM model designed to exercise
 a particular axis of the framework (action-space type, reward
 composition, stochastic forcing, coordination, etc.). All `.inp`
-files in this directory are released under the project's MIT license
+files in this directory are released under the project's Apache-2.0 license
 (no client data, no real locations).
 
 ## Status
