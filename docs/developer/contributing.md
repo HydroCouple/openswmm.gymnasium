@@ -13,5 +13,5 @@ requirements, and PR process.
   See plan §13 for the full tag table.
 - Tests: no engine mocks — drive the real
   {py:class}`openswmm.engine.Solver` against tiny in-tree fixtures.
-- License: contributions are MIT-licensed; first PR requires CLA signing
+- License: contributions are Apache-2.0-licensed; first PR requires CLA signing
   via CLA Assistant.

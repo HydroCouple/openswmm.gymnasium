@@ -2,7 +2,7 @@
 
 # openswmm.gymnasium
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Lint](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/lint.yml/badge.svg)](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/lint.yml)
 [![Unit Testing](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/unit_testing.yml/badge.svg)](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/unit_testing.yml)
@@ -302,4 +302,4 @@ By participating you agree to abide by our
 
 ## License
 
-MIT — see [LICENSE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE).
+Apache License, Version 2.0 — see [LICENSE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE) and [NOTICE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/NOTICE).

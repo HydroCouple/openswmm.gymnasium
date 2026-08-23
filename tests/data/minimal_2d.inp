@@ -1,0 +1,58 @@
+[TITLE]
+Minimal coupled 1D/2D fixture: two-triangle mesh over J1 -> O1.
+Mirrors the engine's marcher fixture (openswmm.engine
+python/tests/test_2d_marcher_options.py), shortened to 10 minutes.
+
+[OPTIONS]
+FLOW_UNITS           CMS
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2026
+START_TIME           00:00:00
+END_DATE             01/01/2026
+END_TIME             00:10:00
+REPORT_STEP          00:01:00
+ROUTING_STEP         1
+ALLOW_PONDING        NO
+
+[JUNCTIONS]
+J1      0.0   1.0       0          0         0
+
+[OUTFALLS]
+O1     -0.5    FREE  NO
+
+[CONDUITS]
+C1      J1    O1  30.0    0.013      0         0          0
+
+[XSECTIONS]
+C1      CIRCULAR  0.2    0      0      0      1
+
+[INFLOWS]
+J1      FLOW         IN_TS    FLOW  1.0      1.0
+
+[TIMESERIES]
+IN_TS   0:00   0.10
+IN_TS   0:08   0.10
+IN_TS   0:09   0.0
+
+[2D_OPTIONS]
+MAX_TIMESTEP     1
+DRY_DEPTH        0.002
+COUPLING_CD      0.7
+REPORT_2D        NO
+
+[2D_VERTICES]
+ 0.0    0.0   1.0
+10.0    0.0   1.0
+10.0   10.0   1.0
+ 0.0   10.0   1.0
+
+[2D_TRIANGLES]
+0     1   2   0.03
+0     2   3   0.03
+
+[2D_VERTEX_NODE_MAP]
+0         J1    0.7  1.0
+
+[REPORT]
+INPUT      NO
+CONTINUITY NO

@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 openswmm_gymnasium.rewards
 ==========================
@@ -16,7 +32,7 @@ imports beyond this module.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from openswmm_gymnasium.rewards.registry import RewardRegistry
@@ -24,9 +40,13 @@ from openswmm_gymnasium.rewards.terms import (
     CSOVolume,
     FloodingVolume,
     PeakOutflow,
+    PumpEnergy,
     ReliabilityMargin,
     RewardTerm,
     SetpointSmoothness,
+    StorageUnderUtilization,
+    TSSLoad,
+    UncontrolledDischarge,
 )
 
 # ---------------------------------------------------------------------------
@@ -38,6 +58,10 @@ RewardRegistry.register("cso_volume", CSOVolume)
 RewardRegistry.register("peak_outflow", PeakOutflow)
 RewardRegistry.register("reliability_margin", ReliabilityMargin)
 RewardRegistry.register("setpoint_smoothness", SetpointSmoothness)
+RewardRegistry.register("uncontrolled_discharge", UncontrolledDischarge)
+RewardRegistry.register("storage_underutilization", StorageUnderUtilization)
+RewardRegistry.register("pump_energy", PumpEnergy)
+RewardRegistry.register("tss_load", TSSLoad)
 
 
 __all__ = [
@@ -48,4 +72,8 @@ __all__ = [
     "PeakOutflow",
     "ReliabilityMargin",
     "SetpointSmoothness",
+    "UncontrolledDischarge",
+    "StorageUnderUtilization",
+    "PumpEnergy",
+    "TSSLoad",
 ]

@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 L{SwmmJointCIPRTCEnv} — full hybrid Gymnasium environment.
 
@@ -16,7 +32,7 @@ the design every step.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -173,6 +189,7 @@ class SwmmJointCIPRTCEnv(gym.Env):
             f.bind(self._adapter)
             f.apply(self._adapter, design_action[f.name])
         self._adapter.initialize()
+        self._adapter.start()
 
         # Bind runtime + observation + rewards against the initialized
         # solver.
@@ -220,6 +237,10 @@ class SwmmJointCIPRTCEnv(gym.Env):
         elapsed_days = self._adapter.elapsed
         dt_seconds = (elapsed_days - self._prev_elapsed_days) * _SECONDS_PER_DAY
         self._prev_elapsed_days = elapsed_days
+        # The engine resets ``elapsed`` to 0 on the final step that ends the run;
+        # the resulting negative dt would flip reward-term signs, so drop it.
+        if dt_seconds < 0.0:
+            dt_seconds = 0.0
 
         components: dict[str, float] = {}
         cost = 0.0

@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 L{SwmmRTCEnv} — minimal runtime-only Gymnasium environment.
 
@@ -14,7 +30,7 @@ reward = better outcome}, matching Gymnasium convention.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -121,11 +137,12 @@ class SwmmRTCEnv(gym.Env):
         runtime_subspaces: dict[str, spaces.Space] = {
             f.name: f.space for f in self._runtime_factories
         }
+        # Per the plan §3 contract the action space is always
+        # ``Dict({"design", "runtime"})``; an RTC env has an empty
+        # ``"design"`` half. Both keys are always present so the
+        # mask wrappers and the design/runtime split hold uniformly.
         self.action_space = spaces.Dict(
-            {
-                "design": spaces.Dict({}),  # plan §3 contract; empty here
-                "runtime": spaces.Dict(runtime_subspaces),
-            }
+            {"design": spaces.Dict({}), "runtime": spaces.Dict(runtime_subspaces)}
         )
         self.observation_space = self._observation_builder.space()
 
@@ -133,6 +150,10 @@ class SwmmRTCEnv(gym.Env):
         self._adapter: SolverAdapter | None = None
         self._prev_elapsed_days: float = 0.0
         self._env_step_count: int = 0
+        # Unit system of the loaded model, recorded at reset(). Engine
+        # getters return project units, so rewards/observations scaled by
+        # physical magnitudes must not silently reuse another system's tuning.
+        self._unit_system: str | None = None
 
     # ------------------------------------------------------------------
     # Gymnasium API
@@ -152,22 +173,42 @@ class SwmmRTCEnv(gym.Env):
 
         @param seed: Optional seed forwarded to L{gymnasium.Env.reset}.
         @type seed: int or C{None}
-        @param options: Reserved for future use; currently ignored.
+        @param options: Optional per-episode settings. Supported key:
+            C{"engine_options"} — a C{{name: value}} mapping applied to
+            the model's C{[OPTIONS]} block after open and before
+            initialize (e.g. C{{"IGNORE_2D": "YES"}} to run a meshed
+            model 1D-only for cheap training episodes). Unknown keys
+            raise.
         @type options: dict or C{None}
         @return: Tuple C{(observation, info)} per Gymnasium 1.x.
         @rtype: tuple
+        @raise ValueError: If C{options} contains an unsupported key.
         """
         super().reset(seed=seed)
+
+        engine_options: dict[str, Any] = {}
+        if options:
+            unknown = set(options) - {"engine_options"}
+            if unknown:
+                raise ValueError(
+                    f"Unsupported reset options: {sorted(unknown)}; "
+                    f"supported: ['engine_options']"
+                )
+            engine_options = dict(options.get("engine_options") or {})
 
         # Close any prior episode's solver.
         if self._adapter is not None:
             self._adapter.close()
             self._adapter = None
 
-        # Open + initialize.
+        # Open + initialize + start (start transitions the engine to
+        # RUNNING; step() is guarded on that state).
         self._adapter = SolverAdapter(self._inp_path, self._rpt_path, self._out_path)
         self._adapter.open()
+        for name, value in engine_options.items():
+            self._adapter.set_option(name, value)
         self._adapter.initialize()
+        self._adapter.start()
 
         # Bind all symbolic IDs against the freshly-opened engine.
         for f in self._runtime_factories:
@@ -180,8 +221,24 @@ class SwmmRTCEnv(gym.Env):
         self._prev_elapsed_days = self._adapter.elapsed
         self._env_step_count = 0
 
+        # Record the model's unit system once per episode. If an episode was
+        # previously run under a different system, fail loudly rather than
+        # silently mis-scaling rewards/observations tuned for the old one.
+        current_units = self._adapter.unit_system
+        if self._unit_system is not None and current_units != self._unit_system:
+            raise RuntimeError(
+                f"Model unit system changed across episodes: "
+                f"{self._unit_system!r} -> {current_units!r}. Observation "
+                f"and reward scaling are unit-dependent; recreate the env."
+            )
+        self._unit_system = current_units
+
         obs = self._observation_builder.collect(self._adapter)
-        info: dict[str, Any] = {"elapsed_days": self._adapter.elapsed}
+        info: dict[str, Any] = {
+            "elapsed_days": self._adapter.elapsed,
+            "unit_system": self._unit_system,
+            "flow_units": self._adapter.flow_units,
+        }
         return obs, info
 
     def step(self, action: dict[str, Any]) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
@@ -212,6 +269,10 @@ class SwmmRTCEnv(gym.Env):
         elapsed_days = self._adapter.elapsed
         dt_seconds = (elapsed_days - self._prev_elapsed_days) * _SECONDS_PER_DAY
         self._prev_elapsed_days = elapsed_days
+        # The engine resets ``elapsed`` to 0 on the final step that ends the run;
+        # the resulting negative dt would flip reward-term signs, so drop it.
+        if dt_seconds < 0.0:
+            dt_seconds = 0.0
 
         # Compute reward.
         components: dict[str, float] = {}
