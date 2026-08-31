@@ -38,6 +38,16 @@ the minimum surface the rest of the package needs:
     run at adapter construction, so a too-old / partially-built
     C{openswmm.engine} fails with a message naming the missing symbols
     rather than an C{AttributeError} deep inside a rollout.
+  - B{Optional} (build- and model-dependent) surfaces behind lazily-cached
+    two-tier-guarded accessors: L{SolverAdapter.surface2d},
+    L{SolverAdapter.heat}, L{SolverAdapter.water_age},
+    L{SolverAdapter.reactions}. Tier 1 is "does this engine build carry
+    the module at all"; tier 2 is "does the B{open model} actually enable
+    it" (C{[OPTIONS] HEAT_TRANSPORT} / C{WATER_AGE}). Both raise with the
+    remedy named, rather than silently returning defaults — a heat
+    configuration written into a model that never runs heat transport is
+    a silent no-op, which is exactly the failure mode a training harness
+    cannot detect from its reward.
 
 The adapter does B{not} add any high-level domain logic (observations,
 rewards, action application). Those live in their respective modules
@@ -122,8 +132,22 @@ def _reject_legacy(solver: object) -> None:
 # build (e.g. ``OPENSWMM_BUILD_2D=OFF``) would satisfy while still lacking a
 # symbol, and which a newer-but-compatible build would fail — this package
 # probes for the specific engine surface it calls. Optional surfaces are
-# deliberately *not* listed: the 2D module is probed at
-# L{SolverAdapter.surface2d} instead, so 1D-only builds stay usable.
+# deliberately *not* listed here, because listing one would make every
+# partial build unusable for *every* env rather than only for the envs that
+# actually touch it. Each gets an accessor-level probe instead:
+#
+#   openswmm.engine.Surface2D  -> SolverAdapter.surface2d
+#   openswmm.engine.Heat       -> SolverAdapter.heat
+#   openswmm.engine.WaterAge   -> SolverAdapter.water_age
+#   openswmm.engine.Reactions  -> SolverAdapter.reactions
+#
+# so a 1D-only / heat-less / reaction-less build stays fully usable for
+# hydraulic RTC and CIP work and fails, with the remedy named, only at the
+# moment something reaches for the missing module. The Preissmann-slot link
+# readers need no probe at all: they are plain attributes of the Link/
+# LinkStatsView wrappers that ship with every build, and their *model*-level
+# caveat (any non-FV router reads 0.0) is not a capability question — see
+# the block comment in _LinksCompat.
 
 _REQUIRED_MODULE_ATTRS: tuple[str, ...] = (
     "Pollutants",       # G4 pollutant observations / TSSLoad
@@ -387,6 +411,47 @@ class _LinksCompat:
         @rtype: float
         """
         return float(self._col[idx].xsect.geometry().full_depth)
+
+    # -- Preissmann-slot readers ------------------------------------------
+    #
+    # !! ALL THREE READ 0.0 UNDER THE DYNAMIC-WAVE ROUTER. !!
+    #
+    # The Preissmann slot is a finite-volume-router construct: the notional
+    # narrow slot above a closed conduit's crown that lets an FV scheme carry
+    # pressurized (surcharged) flow with a free-surface formulation. The
+    # engine's dynamic-wave router does not model it, so under
+    # ``ROUTING_MODEL DYNWAVE`` every one of these getters returns a hard
+    # 0.0 — which is byte-for-byte indistinguishable from "the FV router ran
+    # and found no slot flow anywhere".
+    #
+    # That ambiguity is why no consumer may treat a 0.0 from these as a
+    # measurement. A reward term built on slot share would, under dynamic
+    # wave, report a perfect (zero-pressurization) network on every step of
+    # every episode and hand the agent a flat, uninformative signal it can
+    # never move — the worst kind of silent failure, because nothing errors.
+    # L{openswmm_gymnasium.rewards.terms.SurchargeSlotShare} therefore
+    # documents the constraint in its own docstring and warns at bind time;
+    # see that term before adding another consumer.
+
+    def slot_volume(self, idx: int) -> float:
+        # swmm_link_get_slot_volume — instantaneous volume standing above the
+        # conduit crown in the Preissmann slot, project volume units. Always a
+        # subset of get_volume(idx). FV routing only; reads 0.0 under dynamic
+        # wave AND whenever the conduit is below its crown (see block comment).
+        return float(self._col[idx].slot_volume)
+
+    def peak_slot_share(self, idx: int) -> float:
+        # swmm_link_get_stat_peak_slot_share — run-cumulative max of
+        # slot_volume/volume, dimensionless in [0, 1]. FV routing only; reads
+        # 0.0 under dynamic wave (see block comment).
+        return float(self._col[idx].stats.peak_slot_share)
+
+    def slot_share(self, idx: int) -> float:
+        # swmm_link_get_stat_slot_share — run-level ratio of time integrals
+        # (int slot_volume dt) / (int volume dt), dimensionless in [0, 1].
+        # NOT an average of instantaneous ratios. FV routing only; reads 0.0
+        # under dynamic wave (see block comment).
+        return float(self._col[idx].stats.slot_share)
 
     def get_quality(self, idx: int, pollutant: int | str) -> float:
         # Pollutant concentration in the link, in the pollutant's
@@ -668,6 +733,292 @@ class _StatisticsCompat:
         return float(self._stats.link_max_flow_at(idx))
 
 
+class _HeatCompat:
+    """Scalar heat-transport accessor over the v6 ``Heat`` API.
+
+    B{This is a configuration surface, not an observation surface.} The C
+    API exposes B{no} per-node or per-link water-temperature getter, so
+    there is nothing here for an observation collector to read. What it
+    does expose is the inlet-temperature configuration (per source
+    pathway, optionally overridden per node) plus exactly two
+    current-step scalars — L{current_shortwave} and
+    L{current_cloud_fraction} — which are B{forcing}, not state.
+
+    Source-temperature writes are documented LIVE: an edit takes effect on
+    the B{next} routing step, so this doubles as a runtime actuator
+    (L{openswmm_gymnasium.spaces.runtime.HeatSourceTemperatureSetpoint})
+    as well as a design surface
+    (L{openswmm_gymnasium.spaces.design.HeatSourceTemperature}).
+
+    Source pathways are addressed by their B{name} string (C{"DWF"},
+    C{"EXTERNAL_INFLOW"}, C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"},
+    C{"INITIAL_STATE"}); the engine's C{HeatSourceKind} enum never leaves
+    this module. Only C{DWF} and C{EXTERNAL_INFLOW} accept node-scope
+    overrides — the engine refuses the rest rather than silently deferring.
+
+    Temperatures are B{degrees Celsius} regardless of the model's unit
+    system, and the engine B{refuses} (does not clamp) any value outside
+    C{[-50, 100]}; a refused write does not take effect.
+    """
+
+    __slots__ = ("_heat",)
+
+    def __init__(self, heat) -> None:
+        self._heat = heat
+
+    @property
+    def enabled(self) -> bool:
+        # swmm_heat_get_enabled — is [OPTIONS] HEAT_TRANSPORT on?
+        return bool(self._heat.enabled)
+
+    def source_kinds(self) -> list[str]:
+        """Every heat source pathway, as member-name strings.
+
+        @rtype: list[str]
+        """
+        # Iterating Heat.sources yields HeatSourceKind members; return names
+        # so consumers never need the engine enum.
+        return [str(getattr(s, "name", s)) for s in self._heat.sources]
+
+    def is_source_configured(self, source: str) -> bool:
+        # swmm_heat_is_source_configured — whether the model actually sets a
+        # temperature for this pathway (vs. reporting the engine default).
+        return bool(self._heat.sources.is_configured(source))
+
+    def get_source_temp(self, source: str) -> float:
+        # swmm_heat_get_source_temp — GLOBAL inlet temperature, degC.
+        return float(self._heat.sources[source])
+
+    def set_source_temp(self, source: str, temp_c: float) -> None:
+        # swmm_heat_set_source_temp — GLOBAL inlet temperature, degC. REFUSED
+        # (not clamped) outside [-50, 100]. LIVE: takes effect next routing step.
+        self._heat.sources[source] = float(temp_c)
+
+    def clear_source(self, source: str) -> None:
+        # swmm_heat_clear_source — drop the model's setting for this pathway.
+        self._heat.sources.clear(source)
+
+    def get_effective_source_temp(self, source: str, node: int | str) -> float:
+        # swmm_heat_get_effective_source_temp — the temperature this node
+        # actually sees: its node override if one exists, else the global.
+        return float(self._heat.sources.effective(source, node))
+
+    def node_override_count(self) -> int:
+        # swmm_heat_get_node_override_count
+        return len(self._heat.node_overrides)
+
+    def get_node_override(self, row_index: int) -> tuple[str, int, float]:
+        """Read one node-scope override row.
+
+        @return: C{(source_name, node_index, temp_c)}. The source is a
+            member-name string, never the engine enum.
+        @rtype: tuple
+        """
+        # swmm_heat_get_node_override_at
+        row = self._heat.node_overrides[row_index]
+        return (str(getattr(row.source, "name", row.source)), int(row.node_index), float(row.temp_c))
+
+    def set_node_override(self, source: str, node: int | str, temp_c: float) -> None:
+        # swmm_heat_set_node_override — DWF / EXTERNAL_INFLOW only (the H1
+        # scope rule; other pathways are REFUSED, not deferred). degC,
+        # refused outside [-50, 100].
+        self._heat.node_overrides.set(source, node, float(temp_c))
+
+    def remove_node_override(self, row_index: int) -> None:
+        # swmm_heat_remove_node_override
+        self._heat.node_overrides.remove(int(row_index))
+
+    @property
+    def current_shortwave(self) -> float:
+        """Current-step incident shortwave radiation.
+
+        One of only two genuinely observable heat quantities in the C API.
+        Project radiation units, unconverted.
+
+        @rtype: float
+        """
+        # swmm_heat_get_current_shortwave
+        return float(self._heat.current_shortwave)
+
+    @property
+    def current_cloud_fraction(self) -> float:
+        """Current-step cloud-cover fraction C in C{[0, 1]}.
+
+        A fraction, B{not} a percent. The other genuinely observable heat
+        quantity in the C API.
+
+        @rtype: float
+        """
+        # swmm_heat_get_current_cloud
+        return float(self._heat.cloud.current)
+
+
+class _WaterAgeCompat:
+    """Scalar water-age accessor over the v6 ``WaterAge`` API.
+
+    Like L{_HeatCompat} this is a B{configuration} surface: the C API
+    exposes no per-node or per-link water-age state getter, so there is
+    nothing to observe — only the per-source-pathway inlet ages that seed
+    the transport, optionally overridden per node.
+
+    Ages are in B{hours} (the config file's unit), and B{negative values
+    are legal and meaningful}: a negative source age B{extracts}
+    age-volume, clamped engine-side so age never goes below zero. Nothing
+    in this package may clamp the low bound at zero on the user's behalf.
+
+    Source pathways are addressed by member-name string (C{"DWF"},
+    C{"EXTERNAL_INFLOW"}, C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"},
+    C{"INITIAL_STATE"}); the engine's C{WaterAgeSource} enum never leaves
+    this module. Only C{DWF} and C{EXTERNAL_INFLOW} accept node-scope
+    overrides (the A1a scope rule).
+    """
+
+    __slots__ = ("_wa",)
+
+    def __init__(self, water_age) -> None:
+        self._wa = water_age
+
+    @property
+    def enabled(self) -> bool:
+        # swmm_water_age_get_enabled — is [OPTIONS] WATER_AGE on?
+        return bool(self._wa.enabled)
+
+    def source_pathways(self) -> list[str]:
+        """Every water-age source pathway, as member-name strings.
+
+        @rtype: list[str]
+        """
+        return [str(getattr(s, "name", s)) for s in self._wa.globals]
+
+    def get_source_age(self, source: str) -> float:
+        # swmm_water_age_get_global — GLOBAL source age, HOURS (signed).
+        return float(self._wa.globals[source])
+
+    def set_source_age(self, source: str, hours: float) -> None:
+        # swmm_water_age_set_global — GLOBAL source age, HOURS. Negative is
+        # legal (age-volume extraction, D-NS1). LIVE: next routing step.
+        self._wa.globals[source] = float(hours)
+
+    def node_override_count(self) -> int:
+        # swmm_water_age_get_override_count
+        return len(self._wa.node_overrides)
+
+    def get_node_override(self, row_index: int) -> tuple[str, int, float]:
+        """Read one node-scope override row.
+
+        @return: C{(source_name, node_index, hours)}. The source is a
+            member-name string, never the engine enum.
+        @rtype: tuple
+        """
+        # swmm_water_age_get_override_at
+        row = self._wa.node_overrides[row_index]
+        return (str(getattr(row.source, "name", row.source)), int(row.node_index), float(row.hours))
+
+    def set_node_override(self, source: str, node: int | str, hours: float) -> None:
+        # swmm_water_age_set_override — DWF / EXTERNAL_INFLOW only; negative
+        # hours legal.
+        self._wa.node_overrides.set(source, node, float(hours))
+
+    def remove_node_override(self, source: str, node: int | str) -> None:
+        # swmm_water_age_remove_override — addressed by (source, node), not
+        # by row index (unlike the heat overrides).
+        self._wa.node_overrides.remove(source, node)
+
+
+class _ReactionsCompat:
+    """Multi-species reaction accessor over the v6 ``Reactions`` API.
+
+    Again a B{configuration} surface — the C API exposes no per-element
+    species-concentration getter, so reaction results are not observable
+    from a running solver. What it does expose, and what makes this worth
+    surfacing at all, is the B{reaction coefficient} table: the
+    C{[REACTION_COEFFICIENTS]} PARAMETER values are the calibration /
+    optimisation handles of a multi-species model, and
+    L{openswmm_gymnasium.spaces.design.ReactionCoefficientValue} searches
+    over them.
+
+    Coefficients come in two flavours, distinguished by
+    L{is_coefficient_param}: PARAMETERs are intended to be varied;
+    CONSTANTs are not. Searching a CONSTANT is refused at bind time rather
+    than written and silently ignored.
+
+    Species / coefficient / term enumeration is B{by name} — the engine's
+    element wrapper objects never leave this module.
+    """
+
+    __slots__ = ("_rxn",)
+
+    def __init__(self, reactions) -> None:
+        self._rxn = reactions
+
+    def species_names(self) -> list[str]:
+        """Every declared species id, in engine order.
+
+        @rtype: list[str]
+        """
+        # swmm_reaction_get_species_count / _get_species_name
+        return [str(s.name) for s in self._rxn.species]
+
+    def coefficient_names(self) -> list[str]:
+        """Every declared reaction coefficient id, in engine order.
+
+        @rtype: list[str]
+        """
+        # swmm_reaction_get_coeff_count / _get_coeff_name
+        return [str(c.name) for c in self._rxn.coefficients]
+
+    def term_names(self) -> list[str]:
+        """Every declared intermediate-term id, in engine order.
+
+        @rtype: list[str]
+        """
+        # swmm_reaction_get_term_count / _get_term_name
+        return [str(t.name) for t in self._rxn.terms]
+
+    def is_coefficient_param(self, name: str) -> bool:
+        """Whether C{name} is a PARAMETER (searchable) or a CONSTANT.
+
+        @rtype: bool
+        """
+        # swmm_reaction_get_coeff_is_param
+        return bool(self._rxn.coefficients[name].is_param)
+
+    def get_coefficient(self, name: str) -> float:
+        # swmm_reaction_get_coeff_value — in whatever units the model's
+        # reaction expressions assume; returned unconverted.
+        return float(self._rxn.coefficients[name].value)
+
+    def set_coefficient(self, name: str, value: float) -> None:
+        # swmm_reaction_set_coeff_value — the calibration handle. Project /
+        # expression units, unconverted.
+        self._rxn.coefficients[name].value = float(value)
+
+    def validate(self, expression: str, scope: str = "PIPE") -> tuple[bool, str, int]:
+        """Compile-check one reaction expression without changing state.
+
+        @param expression: Expression text.
+        @type expression: str
+        @param scope: Identifier-resolution vocabulary — C{"TERM"},
+            C{"PIPE"} (default) or C{"TANK"}. A name string, so the
+            engine's C{ReactionScope} enum never leaves this module.
+        @type scope: str
+        @return: C{(valid, message, column)}; C{column} is 1-based, or
+            C{-1} when the diagnostic is not attributable.
+        @rtype: tuple
+        @raise ValueError: If C{scope} is not a C{ReactionScope} member name.
+        """
+        # swmm_reaction_validate_expression
+        try:
+            scope_enum = _engine.ReactionScope[str(scope).upper()]
+        except KeyError as exc:
+            raise ValueError(
+                f"unknown reaction scope {scope!r}; expected one of "
+                "'TERM', 'PIPE', 'TANK'"
+            ) from exc
+        diag = self._rxn.validate(expression, scope_enum)
+        return (bool(diag.valid), str(diag.message), int(diag.column))
+
+
 class _Surface2DCompat:
     """Read-only 2D surface accessor over ``Solver.surface2d``.
 
@@ -773,6 +1124,9 @@ class SolverAdapter:
         self._tables: _TablesCompat | None = None
         self._statistics: _StatisticsCompat | None = None
         self._surface2d: _Surface2DCompat | None = None
+        self._heat: _HeatCompat | None = None
+        self._water_age: _WaterAgeCompat | None = None
+        self._reactions: _ReactionsCompat | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1080,6 +1434,135 @@ class SolverAdapter:
                 )
             self._surface2d = compat
         return self._surface2d
+
+    @property
+    def heat(self) -> _HeatCompat:
+        """Lazily-constructed, cached heat-transport accessor.
+
+        B{Two-tier guard}, mirroring L{surface2d}:
+
+          1. B{Build tier} — an C{openswmm.engine} without a C{Heat} class
+             (an older wheel, or a build with the heat component off)
+             raises naming the remedy.
+          2. B{Model tier} — an open model whose C{[OPTIONS]} lacks
+             C{HEAT_TRANSPORT YES} raises rather than accepting writes the
+             engine will parse but never route. A heat configuration
+             applied to a model that does not run heat transport is a
+             B{silent} no-op: the source temperatures are stored, nothing
+             errors, and no reward signal ever moves. Better to fail loudly
+             at bind than to train against a dead actuator.
+
+        @rtype: L{_HeatCompat}
+        @raise RuntimeError: If the engine build has no heat module, or the
+            open model does not enable heat transport.
+        """
+        if self._heat is None:
+            heat_cls = getattr(_engine, "Heat", None)
+            if heat_cls is None:
+                raise RuntimeError(
+                    "This openswmm.engine build has no Heat module "
+                    "(openswmm.engine.Heat is absent); heat-transport "
+                    "factories and actuators are unavailable. Upgrade the "
+                    "openswmm package, or rebuild the engine with the heat "
+                    "component enabled."
+                )
+            compat = _HeatCompat(heat_cls(self._solver))
+            if not compat.enabled:
+                raise RuntimeError(
+                    "The open model does not run heat transport: its "
+                    "[OPTIONS] section has no 'HEAT_TRANSPORT YES'. Heat "
+                    "source temperatures would be stored and never routed, "
+                    "so this accessor refuses rather than returning "
+                    "defaults. Enable HEAT_TRANSPORT in the .inp, or remove "
+                    "the heat factories/actuators from the config."
+                )
+            self._heat = compat
+        return self._heat
+
+    @property
+    def water_age(self) -> _WaterAgeCompat:
+        """Lazily-constructed, cached water-age accessor.
+
+        Same two-tier guard as L{heat}: build tier (no C{WaterAge} class in
+        this engine build) then model tier (the open model's C{[OPTIONS]}
+        lacks C{WATER_AGE YES}, so configured source ages would be stored
+        and never transported).
+
+        @rtype: L{_WaterAgeCompat}
+        @raise RuntimeError: If the engine build has no water-age module, or
+            the open model does not enable water age.
+        """
+        if self._water_age is None:
+            wa_cls = getattr(_engine, "WaterAge", None)
+            if wa_cls is None:
+                raise RuntimeError(
+                    "This openswmm.engine build has no WaterAge module "
+                    "(openswmm.engine.WaterAge is absent); water-age "
+                    "factories are unavailable. Upgrade the openswmm "
+                    "package, or rebuild the engine with the water-age "
+                    "component enabled."
+                )
+            compat = _WaterAgeCompat(wa_cls(self._solver))
+            if not compat.enabled:
+                raise RuntimeError(
+                    "The open model does not run water age: its [OPTIONS] "
+                    "section has no 'WATER_AGE YES'. Configured source ages "
+                    "would be stored and never transported, so this accessor "
+                    "refuses rather than returning defaults. Enable "
+                    "WATER_AGE in the .inp, or remove the water-age "
+                    "factories from the config."
+                )
+            self._water_age = compat
+        return self._water_age
+
+    @property
+    def reactions(self) -> _ReactionsCompat:
+        """Lazily-constructed, cached multi-species reaction accessor.
+
+        B{One-tier guard only.} Unlike L{heat} / L{water_age} there is no
+        C{[OPTIONS]} flag that turns reactions on: a model either declares
+        species and coefficients or it does not, and an empty coefficient
+        table is a legitimate (if useless) state rather than a
+        misconfiguration. The model-level check therefore belongs to the
+        consumer —
+        L{openswmm_gymnasium.spaces.design.ReactionCoefficientValue} raises
+        at bind when a named coefficient is absent, which is the specific,
+        actionable version of the same question.
+
+        @rtype: L{_ReactionsCompat}
+        @raise RuntimeError: If the engine build has no reactions module.
+        """
+        if self._reactions is None:
+            rxn_cls = getattr(_engine, "Reactions", None)
+            if rxn_cls is None:
+                raise RuntimeError(
+                    "This openswmm.engine build has no Reactions module "
+                    "(openswmm.engine.Reactions is absent); reaction "
+                    "coefficient search is unavailable. Upgrade the "
+                    "openswmm package, or rebuild the engine with the "
+                    "multi-species reaction component enabled."
+                )
+            self._reactions = _ReactionsCompat(rxn_cls(self._solver))
+        return self._reactions
+
+    def get_option(self, name: str) -> str:
+        """Read one C{[OPTIONS]} entry from the open model.
+
+        Thin pass-through to the engine's C{Solver.options} mapping, the
+        read counterpart of L{set_option}. Used to answer model-level
+        questions a caller cannot otherwise ask — notably which router is
+        active (C{get_option("ROUTING_MODEL")}), which decides whether the
+        Preissmann-slot link readers can produce a signal at all. Call
+        after L{open}.
+
+        @param name: Option keyword as it appears in C{[OPTIONS]}.
+        @type name: str
+        @return: The option's value in its string form.
+        @rtype: str
+        @raise KeyError: If the engine mapping does not carry C{name}.
+        @raise openswmm.engine.EngineError: If the engine rejects the key.
+        """
+        return str(self._solver.options[name])
 
     def set_option(self, name: str, value) -> None:
         """Set one C{[OPTIONS]} entry on the open model (pre-initialize).

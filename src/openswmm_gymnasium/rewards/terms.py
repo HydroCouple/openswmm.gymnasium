@@ -31,7 +31,7 @@ Each term is a small class implementing the L{RewardTerm} interface:
     the per-step contribution (B{positive} for both C{"minimize"} and
     C{"maximize"} terms; the env handles sign flipping per plan §0 #5).
 
-Ships nine first-class terms:
+Ships ten first-class terms:
 
   - L{FloodingVolume} (P1) — flooded volume across nodes, read from the
     engine's cumulative flooding statistic.
@@ -49,6 +49,8 @@ Ships nine first-class terms:
     (C{1 - depth/max_depth}) across storage nodes. (Objective #3.)
   - L{PumpEnergy} — pump effort (control setting × rated power × dt)
     summed across pumps. (Objective #4.)
+  - L{SurchargeSlotShare} — run-level Preissmann-slot storage share as a
+    pressurisation proxy. B{Finite-volume routing only.}
 
 The remaining plan §5.1 terms (C{CapitalCost}, C{OandMCost}) land in
 subsequent phases.
@@ -58,8 +60,9 @@ quantity (C{swmm_*_get_stat_*}), the term reads that statistic and
 differences successive reads rather than re-integrating a sampled rate in
 Python — the engine accumulates every routing step, whereas a term only
 sees the state at env-step boundaries. This applies to L{FloodingVolume}
-(and hence L{CSOVolume}) and L{PeakOutflow}. The other terms keep their
-Python loops because no engine statistic carries the same quantity:
+(and hence L{CSOVolume}), L{PeakOutflow} and L{SurchargeSlotShare}. The
+other terms keep their Python loops because no engine statistic carries
+the same quantity:
 
   - L{ReliabilityMargin} — C{node_max_depth} is a cumulative maximum; the
     term wants the per-step B{minimum} freeboard. Not recoverable from a
@@ -72,6 +75,15 @@ Python loops because no engine statistic carries the same quantity:
     differ whenever a link reverses.
   - L{StorageUnderUtilization}, L{SetpointSmoothness} — no engine
     statistic accumulates unused headroom or setpoint churn.
+  - L{TSSLoad} — no engine statistic accumulates pollutant mass flux.
+  - L{SurchargeSlotShare} — B{uses} C{link_slot_share}, and could not be
+    reconstructed in Python if it wanted to: the statistic is a ratio of
+    B{time integrals}, C{(int slot_volume dt) / (int volume dt)}, not an
+    average of instantaneous ratios. Sampling C{slot_volume/volume} at
+    env-step boundaries and averaging gives a different (and wrong)
+    number, because it weights every sample equally instead of by the
+    volume present. This is the clearest case in the table of a statistic
+    that B{must} be read rather than re-derived.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -670,3 +682,163 @@ class PumpEnergy:
             if setting > 0.0:
                 effort += setting * power
         return effort * dt_seconds
+
+
+# =============================================================================
+# Pressurisation (Preissmann slot)
+# =============================================================================
+
+
+#: The one C{[OPTIONS] FLOW_ROUTING} value under which the Preissmann-slot
+#: statistics carry information. The engine canonicalises the option to
+#: exactly one of C{STEADY} / C{KINWAVE} / C{DYNWAVE} / C{FV} on read, and
+#: only C{FV} — the finite-volume router — models a slot at all; the other
+#: three all report a hard 0.0. The guard is written as "require FV" rather
+#: than "reject DYNWAVE" so a steady-flow or kinematic-wave model, which is
+#: just as silently unusable, is caught by the same check.
+_FV_ROUTING_TOKEN = "FV"
+
+#: C{[OPTIONS]} keys that report the active router, tried in order. The
+#: engine's option mapping accepts both spellings; C{FLOW_ROUTING} is the
+#: keyword as it appears in an C{.inp}.
+_ROUTING_OPTION_KEYS = ("FLOW_ROUTING", "ROUTING_MODEL")
+
+
+class SurchargeSlotShare:
+    """Preissmann-slot storage share across links — a pressurisation proxy.
+
+    B{FINITE-VOLUME ROUTING ONLY (C{FLOW_ROUTING FV}). READS A HARD 0.0
+    UNDER EVERY OTHER ROUTER, DYNAMIC WAVE INCLUDED.} That constraint is
+    the single most important thing about this term and is enforced at
+    L{bind}; read the whole docstring before using it.
+
+    B{What it measures.} The Preissmann slot is the notional narrow slot a
+    finite-volume router places above a closed conduit's crown so a
+    free-surface scheme can carry pressurized flow. Water standing in that
+    slot B{is} the surcharge: the fraction of a conduit's stored volume
+    held above its crown is a direct, continuous measure of how
+    pressurized the pipe is — unlike C{surcharge_time}, which is a binary
+    threshold crossing integrated over time, and unlike C{max_filling},
+    which saturates at 1.0 and then carries no further information however
+    hard the pipe is pressurized. A network that never pressurizes scores
+    0; one that runs full and under head scores near 1.
+
+    The term reads the engine's B{run-level} statistic
+    C{swmm_link_get_stat_slot_share}, exposed as
+    C{adapter.links.slot_share}: the ratio of time integrals
+    C{(int slot_volume dt) / (int volume dt)} over the run so far. That is
+    B{not} an average of instantaneous ratios, and it is B{not}
+    reconstructible in Python from env-step samples — sampling
+    C{slot_volume / volume} at step boundaries and averaging weights every
+    sample equally instead of by the volume present, which is a different
+    number. Reading the statistic is mandatory, not merely convenient.
+
+    B{Units.} B{Dimensionless}, in C{[0, 1]}. A ratio of volumes, so it
+    carries no unit-system dependence at all — the one term in this module
+    that is identical between a CFS and a CMS model. Returned unconverted
+    (there is nothing to convert).
+
+    B{Per-step contribution.} The links' shares are averaged (so the value
+    stays in C{[0, 1]} however many links are tracked), a running maximum
+    of that average is kept, and the contribution of a step is the
+    B{increase} in that running maximum — the same envelope construction
+    L{PeakOutflow} uses. Cumulative reward over the episode therefore
+    equals the B{highest run-level mean slot share attained}, in
+    C{[0, 1]}, and never exceeds it. C{dt_seconds} is unused: the engine
+    has already done the time integration, and multiplying an
+    already-integrated ratio by C{dt} again would double-count.
+
+    B{Why the router matters so much.} Only C{FLOW_ROUTING FV} models a
+    slot. Under C{DYNWAVE} — and equally under C{STEADY} and C{KINWAVE} —
+    the engine has no slot to report and C{slot_share} returns 0.0, a
+    value byte-for-byte indistinguishable from "the FV router ran and
+    found no pressurisation anywhere". A term reading it on such a model
+    would report a perfect network on every step of every episode and hand
+    the agent a flat, unmovable signal, with nothing raised and nothing
+    logged. That is exactly the class of silent failure a reward must
+    never have, so L{bind} reads C{[OPTIONS] FLOW_ROUTING} and B{raises}
+    on any non-FV router rather than warning. If the engine will not
+    report the option (an older build, or a mapping that lacks the key),
+    detection is skipped and the term proceeds — in that case the
+    constraint is yours to honour.
+
+    @ivar name: C{"surcharge_slot_share"} by default.
+    @ivar direction: Always C{"minimize"}.
+    """
+
+    direction = "minimize"
+
+    def __init__(
+        self,
+        link_ids: Sequence[str],
+        name: str = "surcharge_slot_share",
+    ) -> None:
+        """
+        @param link_ids: Closed-conduit link IDs whose pressurisation to
+            penalise. Required and non-empty: run over every link in the
+            model and the mean is diluted by open channels and pumps,
+            which have no slot and contribute a structural zero.
+        @type link_ids: sequence of str
+        @param name: Term identifier.
+        @type name: str
+        @raise ValueError: If C{link_ids} is empty.
+        """
+        if not link_ids:
+            raise ValueError("SurchargeSlotShare requires at least one link_id")
+        self.name = name
+        self._link_ids: list[str] = list(link_ids)
+        self._idxs: list[int] | None = None
+        self._peak: float = 0.0
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Resolve link indices and refuse a dynamic-wave model.
+
+        @param adapter: Adapter wrapping the open solver.
+        @type adapter: L{SolverAdapter}
+        @raise ValueError: If C{[OPTIONS] ROUTING_MODEL} names the
+            dynamic-wave router, under which every slot reader returns a
+            hard 0.0 and this term can never produce a signal.
+        """
+        routing = ""
+        for key in _ROUTING_OPTION_KEYS:
+            try:
+                routing = str(adapter.get_option(key)).strip().upper()
+            except Exception:
+                # This build / mapping will not report the option under this
+                # key; try the next spelling.
+                continue
+            if routing:
+                break
+        # An empty reading means detection failed outright (an older engine,
+        # or a mapping without the key). Proceed rather than refuse a model
+        # that may well be FV; the constraint is documented on the class.
+        if routing and routing != _FV_ROUTING_TOKEN:
+            raise ValueError(
+                f"SurchargeSlotShare cannot be used with FLOW_ROUTING "
+                f"{routing}: the Preissmann slot is a finite-volume construct, "
+                f"so every slot statistic reads a hard 0.0 under any router "
+                f"other than {_FV_ROUTING_TOKEN}. The term would report zero "
+                "pressurisation on every step of every episode and give the "
+                "agent no signal to act on. Set FLOW_ROUTING FV in the model, "
+                "or use a pressurisation proxy that works under this router "
+                "(e.g. link surcharge time, or node depth against crown "
+                "elevation)."
+            )
+        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+
+    def reset(self) -> None:
+        """Drop the running-maximum envelope from the prior episode."""
+        self._peak = 0.0
+
+    def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
+        assert self._idxs is not None, "bind() before step()"
+        get = adapter.links.slot_share
+        total = 0.0
+        for idx in self._idxs:
+            total += float(get(idx))
+        share = total / len(self._idxs)
+        if share > self._peak:
+            increment = share - self._peak
+            self._peak = share
+            return increment
+        return 0.0

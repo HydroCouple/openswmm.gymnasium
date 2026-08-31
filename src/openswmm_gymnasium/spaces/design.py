@@ -35,9 +35,12 @@ pre-initialize edit path:
   - L{NodeMaxDepth}  — sets node L{max_depth} (useful as a proxy for
     storage volume on tank-like nodes).
 
-Three further §3.1-family factories size the assets modelers most want to
+Four further §3.1-family factories size the assets modelers most want to
 explore:
 
+  - L{SubcatchGWOutflowCoeff} — the C{[GROUNDWATER]} outflow coefficient
+    C{a1} per subcatchment, a design lever over baseflow; every other
+    groundwater parameter is preserved.
   - L{StorageVolume} — sizes detention/retention storage via either the
     FUNCTIONAL surface-area relation or a TABULAR depth-area curve
     (scalar footprint multiplier, or the raw C{(a,b,c)} triple).
@@ -46,9 +49,29 @@ explore:
   - L{RDIIUnitHydrograph} — sizes RDII response by editing unit-hydrograph
     R fractions (and optionally initial abstraction), preserving T and K.
 
+Three B{process-configuration} factories reach the engine's heat-transport,
+water-age and multi-species reaction surfaces. These differ in kind from
+everything above: they do not resize an asset, they set the B{boundary
+conditions and rate constants of a transport process}, which makes them
+calibration / inverse-problem handles at least as much as CIP levers.
+
+  - L{ReactionCoefficientValue} — C{[REACTION_COEFFICIENTS]} PARAMETER
+    values. The highest-value of the three: it turns a multi-species
+    reaction model into a directly calibratable / optimisable surface.
+  - L{HeatSourceTemperature} — global inlet temperature per heat-source
+    pathway (degC).
+  - L{WaterAgeSourceAge} — global source age per water-age pathway (hours;
+    B{negative values are legal} — they extract age-volume).
+
 The remaining §3.1 factories (C{OutfallStage}, C{WeirCrestElev},
 C{OrificeMaxOpening}, C{PumpCurveChoice}, C{ControlRuleSelection}) land in
-subsequent phases as benchmark scenarios that need them come online.
+subsequent phases as benchmark scenarios that need them come online. Two
+further engine surfaces are reachable but deliberately B{not} wrapped yet:
+C{InitialQuality} (per-element initial temperature / age / species rows —
+an initial-condition randomiser rather than a design dimension, so it
+belongs with hot-start seeding) and C{ProcessComponents} (registration of
+external process plugins by config path — a model-assembly concern with no
+continuous search space).
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -919,3 +942,344 @@ class RDIIUnitHydrograph:
                 adapter.inflows.set_hydrograph_ia(
                     uh, month, response, float(ia[0]), float(ia[1]), float(ia[2])
                 )
+
+
+# =============================================================================
+# Process-configuration factories (heat / water age / reactions)
+# =============================================================================
+#
+# The engine's heat, water-age and reaction modules are almost entirely
+# *configuration* surfaces: the C API exposes no per-node or per-link
+# temperature, water-age or species-concentration getter, so none of them can
+# be observed from a running solver. That asymmetry is deliberate in this
+# package — they appear here as searchable inputs (and, for heat, as a runtime
+# actuator) and nowhere in ``observations/``.
+
+
+class ReactionCoefficientValue:
+    """Reaction-coefficient values from C{[REACTION_COEFFICIENTS]}.
+
+    Searches over the rate constants, half-saturation constants, yields and
+    stoichiometric factors of a multi-species reaction model — the terms that
+    appear by name inside the model's own pipe/tank reaction expressions. One
+    scalar per named coefficient, written through
+    L{openswmm.engine.Reactions} in the OPENED (pre-initialize) state.
+
+    B{Why this one matters.} Reaction coefficients are exactly the quantities
+    a water-quality modeller normally fits by hand against observed
+    concentrations. Exposing them as a design space turns calibration into an
+    ordinary optimisation problem over the same env machinery that does CIP
+    sizing: pair this factory with an observed-vs-simulated objective and the
+    search B{is} a calibration run; pair it with a treatment-performance
+    objective and it is a process-design run instead.
+
+    B{PARAMETER vs CONSTANT.} The engine distinguishes the two
+    (C{is_param}). A CONSTANT is declared by the modeller as fixed, and
+    writing one is meaningless-at-best; L{bind} B{refuses} any CONSTANT
+    target with a L{ValueError} naming it, rather than writing values the
+    model was never meant to vary. Pass only PARAMETER coefficients.
+
+    B{Units.} Whatever the model's reaction expressions assume — the engine
+    does not declare coefficient units and this factory does not guess.
+    Values are written B{unconverted}, so the bounds must be given in the
+    model's own terms.
+
+    @ivar name: Action-space key, default C{"reaction_coefficient_value"}.
+    """
+
+    def __init__(
+        self,
+        coefficient_ids: Sequence[str],
+        low: float | Sequence[float],
+        high: float | Sequence[float],
+        name: str = "reaction_coefficient_value",
+    ) -> None:
+        """
+        @param coefficient_ids: Coefficient names as declared in
+            C{[REACTION_COEFFICIENTS]}. Each must be a PARAMETER.
+        @type coefficient_ids: sequence of str
+        @param low: Lower bound — a scalar applied to every coefficient, or
+            one bound per coefficient (they rarely share a range).
+        @type low: float or sequence of float
+        @param high: Upper bound, matching C{low}'s shape.
+        @type high: float or sequence of float
+        @param name: Action-space key.
+        @type name: str
+        @raise ValueError: If C{coefficient_ids} is empty, or the bounds are
+            mis-shaped / not searchable.
+        """
+        if not coefficient_ids:
+            raise ValueError(
+                "ReactionCoefficientValue requires at least one coefficient_id"
+            )
+        self._coefficient_ids = [str(c) for c in coefficient_ids]
+        n = len(self._coefficient_ids)
+
+        scalar_low = isinstance(low, (int, float))
+        scalar_high = isinstance(high, (int, float))
+        if scalar_low != scalar_high:
+            raise ValueError(
+                "ReactionCoefficientValue: low and high must both be scalars "
+                "or both be per-coefficient sequences"
+            )
+        if scalar_low:
+            self._low = np.full((n,), float(low), dtype=np.float32)
+            self._high = np.full((n,), float(high), dtype=np.float32)
+        else:
+            self._low = np.asarray(low, dtype=np.float32)
+            self._high = np.asarray(high, dtype=np.float32)
+            if self._low.shape != (n,) or self._high.shape != (n,):
+                raise ValueError(
+                    "ReactionCoefficientValue: per-coefficient low/high must "
+                    f"each have one entry per coefficient_id ({n})"
+                )
+        self.name = name
+        self._bound: bool = False
+        self._box = _make_box_bounds(self._low, self._high)
+
+    @property
+    def space(self) -> spaces.Box:
+        return self._box
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Verify every target exists and is a searchable PARAMETER.
+
+        Coefficients are addressed by name end-to-end (the engine's
+        C{get_index} is not needed and index stability across edits is not
+        assumed), so C{bind} validates rather than resolving.
+
+        @raise ValueError: If a coefficient is undeclared, or is a CONSTANT
+            rather than a PARAMETER.
+        """
+        declared = set(adapter.reactions.coefficient_names())
+        missing = [c for c in self._coefficient_ids if c not in declared]
+        if missing:
+            raise ValueError(
+                f"ReactionCoefficientValue: coefficient(s) {missing!r} are not "
+                "declared in [REACTION_COEFFICIENTS]. Declared: "
+                f"{sorted(declared)!r}"
+            )
+        constants = [
+            c
+            for c in self._coefficient_ids
+            if not adapter.reactions.is_coefficient_param(c)
+        ]
+        if constants:
+            raise ValueError(
+                f"ReactionCoefficientValue: coefficient(s) {constants!r} are "
+                "declared CONSTANT, not PARAMETER. The model marks them as "
+                "fixed, so searching over them would write values it was "
+                "never meant to vary. Re-declare them as PARAMETER, or drop "
+                "them from coefficient_ids."
+            )
+        self._bound = True
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        if not self._bound:
+            raise RuntimeError(
+                "ReactionCoefficientValue.bind() must be called before apply()"
+            )
+        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        for cid, v in zip(self._coefficient_ids, clipped, strict=True):
+            adapter.reactions.set_coefficient(cid, float(v))
+
+
+#: Engine refusal range for a heat source temperature, degrees Celsius. The
+#: engine's parser REFUSES (does not clamp) anything outside it, and a refused
+#: write does not take effect — so the default action bounds are pinned here
+#: rather than left open. An agent sampling at the edge of its own Box must
+#: never be able to produce a mid-episode engine refusal.
+_HEAT_TEMP_MIN_C = -50.0
+_HEAT_TEMP_MAX_C = 100.0
+
+
+class HeatSourceTemperature:
+    """Global inlet temperature per heat-source pathway, degrees Celsius.
+
+    Sets the temperature of the water B{entering} the network along each of
+    the engine's source pathways — C{"DWF"}, C{"EXTERNAL_INFLOW"},
+    C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"}, C{"INITIAL_STATE"} — via
+    L{openswmm.engine.Heat}. Pathways are named by string; the engine's
+    C{HeatSourceKind} enum never enters a config.
+
+    B{Design vs. runtime.} Heat source writes are documented LIVE (they take
+    effect on the next routing step), so the same engine call backs both this
+    once-per-episode design factory and the per-step runtime actuator
+    L{openswmm_gymnasium.spaces.runtime.HeatSourceTemperatureSetpoint}. Use
+    this one for a fixed thermal boundary condition per episode (a design /
+    scenario variable); use the runtime twin when the agent should modulate
+    an inlet temperature over the event.
+
+    B{Bounds.} C{low}/C{high} default to the engine's own refusal range
+    C{[-50, 100]} degC. The engine B{refuses} rather than clamps an
+    out-of-range write, and a refused write does not take effect — so a
+    factory whose Box extended past that range could hand the engine a
+    sampled action it silently declines, leaving the previous episode's
+    temperature in place. Narrow the bounds freely; widening them past the
+    engine range is rejected at construction.
+
+    B{Units.} Degrees Celsius B{regardless of the model's unit system} —
+    heat is the one place SWMM does not follow US/SI. Values are written
+    unconverted.
+
+    B{Requires} C{[OPTIONS] HEAT_TRANSPORT YES}; L{bind} raises with that
+    message otherwise (via L{SolverAdapter.heat}) rather than storing
+    temperatures the model will never route.
+
+    @ivar name: Action-space key, default C{"heat_source_temperature"}.
+    """
+
+    def __init__(
+        self,
+        sources: Sequence[str],
+        low: float = _HEAT_TEMP_MIN_C,
+        high: float = _HEAT_TEMP_MAX_C,
+        name: str = "heat_source_temperature",
+    ) -> None:
+        """
+        @param sources: Heat-source pathway names, e.g. C{("DWF",
+            "EXTERNAL_INFLOW")}.
+        @type sources: sequence of str
+        @param low: Lower bound in degC. Defaults to the engine minimum
+            C{-50}.
+        @type low: float
+        @param high: Upper bound in degC. Defaults to the engine maximum
+            C{100}.
+        @type high: float
+        @param name: Action-space key.
+        @type name: str
+        @raise ValueError: If C{sources} is empty, C{high <= low}, or the
+            range extends beyond the engine's C{[-50, 100]}.
+        """
+        if not sources:
+            raise ValueError("HeatSourceTemperature requires at least one source")
+        self._sources = [str(s).upper() for s in sources]
+        self._low = float(low)
+        self._high = float(high)
+        if self._low < _HEAT_TEMP_MIN_C or self._high > _HEAT_TEMP_MAX_C:
+            raise ValueError(
+                f"HeatSourceTemperature bounds [{self._low}, {self._high}] degC "
+                f"extend beyond the engine's refusal range "
+                f"[{_HEAT_TEMP_MIN_C}, {_HEAT_TEMP_MAX_C}]. The engine refuses "
+                "(does not clamp) an out-of-range temperature and a refused "
+                "write does not take effect, so a sampled action outside that "
+                "range would silently leave the temperature unchanged."
+            )
+        self.name = name
+        self._bound = False
+        self._box = _make_box(self._low, self._high, len(self._sources))
+
+    @property
+    def space(self) -> spaces.Box:
+        return self._box
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Verify heat transport is on and every named pathway is valid.
+
+        @raise RuntimeError: If the engine build has no heat module, or the
+            open model does not enable C{HEAT_TRANSPORT}.
+        @raise ValueError: If a name is not a heat-source pathway.
+        """
+        known = set(adapter.heat.source_kinds())
+        unknown = [s for s in self._sources if s not in known]
+        if unknown:
+            raise ValueError(
+                f"HeatSourceTemperature: unknown heat source(s) {unknown!r}. "
+                f"Valid pathways: {sorted(known)!r}"
+            )
+        self._bound = True
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        if not self._bound:
+            raise RuntimeError(
+                "HeatSourceTemperature.bind() must be called before apply()"
+            )
+        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        for source, v in zip(self._sources, clipped, strict=True):
+            adapter.heat.set_source_temp(source, float(v))
+
+
+class WaterAgeSourceAge:
+    """Global source age per water-age pathway, in hours.
+
+    Sets the age the water entering along each pathway — C{"DWF"},
+    C{"EXTERNAL_INFLOW"}, C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"},
+    C{"INITIAL_STATE"} — is credited with, via L{openswmm.engine.WaterAge}.
+    Pathways are named by string; the engine's C{WaterAgeSource} enum never
+    enters a config.
+
+    B{Negative values are legal and meaningful, and are NOT clamped here.}
+    A negative source age B{extracts} age-volume from the pathway (the
+    engine clamps the resulting age at zero, not the input). That makes a
+    negative bound a real modelling choice — e.g. searching over how much a
+    fresh-water injection should reset the age of a stagnant branch — so
+    this factory's default low bound is B{not} zero and callers must
+    deliberately opt into a non-negative range if that is what they want.
+    Silently flooring at zero would delete half the physically meaningful
+    search space.
+
+    B{Units.} Hours, the config file's own unit, written unconverted.
+
+    B{Requires} C{[OPTIONS] WATER_AGE YES}; L{bind} raises with that message
+    otherwise (via L{SolverAdapter.water_age}) rather than storing ages the
+    model will never transport.
+
+    @ivar name: Action-space key, default C{"water_age_source_age"}.
+    """
+
+    def __init__(
+        self,
+        sources: Sequence[str],
+        low: float,
+        high: float,
+        name: str = "water_age_source_age",
+    ) -> None:
+        """
+        @param sources: Water-age pathway names, e.g. C{("DWF", "RDII")}.
+        @type sources: sequence of str
+        @param low: Lower bound in hours. B{May be negative} — see the class
+            docstring; there is no default, because defaulting either way
+            would make a modelling decision on the caller's behalf.
+        @type low: float
+        @param high: Upper bound in hours.
+        @type high: float
+        @param name: Action-space key.
+        @type name: str
+        @raise ValueError: If C{sources} is empty or C{high <= low}.
+        """
+        if not sources:
+            raise ValueError("WaterAgeSourceAge requires at least one source")
+        self._sources = [str(s).upper() for s in sources]
+        self._low = float(low)
+        self._high = float(high)
+        self.name = name
+        self._bound = False
+        # No non-negativity check: negative hours are a legal engine input.
+        self._box = _make_box(self._low, self._high, len(self._sources))
+
+    @property
+    def space(self) -> spaces.Box:
+        return self._box
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Verify water age is on and every named pathway is valid.
+
+        @raise RuntimeError: If the engine build has no water-age module, or
+            the open model does not enable C{WATER_AGE}.
+        @raise ValueError: If a name is not a water-age pathway.
+        """
+        known = set(adapter.water_age.source_pathways())
+        unknown = [s for s in self._sources if s not in known]
+        if unknown:
+            raise ValueError(
+                f"WaterAgeSourceAge: unknown water-age source(s) {unknown!r}. "
+                f"Valid pathways: {sorted(known)!r}"
+            )
+        self._bound = True
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        if not self._bound:
+            raise RuntimeError("WaterAgeSourceAge.bind() must be called before apply()")
+        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        for source, v in zip(self._sources, clipped, strict=True):
+            adapter.water_age.set_source_age(source, float(v))

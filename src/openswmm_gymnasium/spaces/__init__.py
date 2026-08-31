@@ -45,22 +45,30 @@ L{SolverAdapter.initialize}.
 from openswmm_gymnasium.spaces.control_curve import ControlCurvePolicySpace
 from openswmm_gymnasium.spaces.design import (
     DesignActionFactory,
+    HeatSourceTemperature,
     LIDPlacement,
     LinkDiameter,
     LinkLength,
     LinkRoughness,
     NodeMaxDepth,
     RDIIUnitHydrograph,
+    ReactionCoefficientValue,
     StorageVolume,
     SubcatchGWOutflowCoeff,
+    WaterAgeSourceAge,
 )
 from openswmm_gymnasium.spaces.policy import MarketPolicySpace, PolicyParam
-from openswmm_gymnasium.spaces.runtime import NodeLateralInflow, OrificeSetting
+from openswmm_gymnasium.spaces.runtime import (
+    HeatSourceTemperatureSetpoint,
+    NodeLateralInflow,
+    OrificeSetting,
+)
 from openswmm_gymnasium.spaces.schedule import SchedulePolicySpace
 
 __all__ = [
     "OrificeSetting",
     "NodeLateralInflow",
+    "HeatSourceTemperatureSetpoint",
     "DesignActionFactory",
     "LinkRoughness",
     "LinkLength",
@@ -70,6 +78,9 @@ __all__ = [
     "StorageVolume",
     "LIDPlacement",
     "RDIIUnitHydrograph",
+    "ReactionCoefficientValue",
+    "HeatSourceTemperature",
+    "WaterAgeSourceAge",
     "MarketPolicySpace",
     "PolicyParam",
     "SchedulePolicySpace",

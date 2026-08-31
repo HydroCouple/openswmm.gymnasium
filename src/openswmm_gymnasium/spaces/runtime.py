@@ -21,6 +21,28 @@ Each factory exposes a L{gymnasium.spaces.Box}-or-similar over a set of
 controllable elements and translates sampled values into persistent
 runtime overrides via the link C{target_setting} (or related) each step.
 
+Ships three actuators:
+
+  - L{OrificeSetting} — per-link C{[0, 1]} control setting.
+  - L{NodeLateralInflow} — per-node controllable lateral inflow.
+  - L{HeatSourceTemperatureSetpoint} — per-pathway inlet temperature in
+    degC. The engine documents heat source writes as B{live} (they take
+    effect on the next routing step), which is what makes a heat
+    configuration call a legitimate runtime actuator rather than a
+    pre-initialize-only edit.
+
+B{No water-age runtime twin is shipped}, deliberately. Water-age source
+writes are live in exactly the same way, so one would be mechanically
+trivial — but it would not be a meaningful control. Heat has a physical
+actuator behind it (a discharge whose temperature a plant genuinely
+regulates, and which genuinely alters downstream water temperature at
+step resolution). A source's assigned water age is a bookkeeping label on
+inflowing water, not a quantity any operator can move during an event;
+per-step modulation of it would let an agent chase reward by rewriting
+its own accounting rather than by operating the network. Water age is
+therefore exposed as a once-per-episode design/scenario input only
+(L{openswmm_gymnasium.spaces.design.WaterAgeSourceAge}).
+
 Plan §3.2.
 
 @author: Caleb Buahin
@@ -209,3 +231,161 @@ class NodeLateralInflow:
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, self._max_inflow)
         for idx, v in zip(self._node_idxs, clipped, strict=True):
             adapter.nodes.set_lateral_inflow(idx, float(v))
+
+
+#: Engine refusal range for a heat source temperature, degrees Celsius.
+#: Mirrors L{openswmm_gymnasium.spaces.design._HEAT_TEMP_MIN_C} / C{_MAX_C};
+#: kept local so the two action modules stay independent.
+_HEAT_TEMP_MIN_C = -50.0
+_HEAT_TEMP_MAX_C = 100.0
+
+
+class HeatSourceTemperatureSetpoint:
+    """Box action over the inlet temperature of one or more heat sources.
+
+    Each component is a temperature in degrees Celsius, applied B{every env
+    step} to a heat-source pathway (C{"DWF"}, C{"EXTERNAL_INFLOW"},
+    C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"}, C{"INITIAL_STATE"}) via
+    C{adapter.heat.set_source_temp}. The engine documents these writes as
+    B{live}: the new value is picked up on the next routing step, which is
+    what makes this a runtime actuator rather than a pre-initialize edit.
+
+    The obvious use is thermal-discharge control — modulating the
+    temperature of a regulated effluent (C{EXTERNAL_INFLOW}) or of
+    dry-weather flow over an event, subject to a downstream thermal
+    objective.
+
+    B{No observation counterpart exists.} The C API exposes no per-node or
+    per-link water-temperature getter, so an agent driving this actuator
+    cannot observe the temperature field it is acting on. Only two
+    heat-related scalars are readable at all — C{adapter.heat.current_shortwave}
+    and C{adapter.heat.current_cloud_fraction} — and both are forcing, not
+    state. Treat this as an open-loop / feed-forward actuator (or close the
+    loop through a proxy such as flow split) until the engine grows a
+    temperature reader.
+
+    B{Bounds.} Default C{[-50, 100]} degC, the engine's own refusal range.
+    The engine B{refuses} rather than clamps an out-of-range write, and a
+    refused write does not take effect, so a Box wider than the engine range
+    could hand it a sampled action it silently declines — leaving the
+    previous step's temperature in force with nothing logged. Narrowing is
+    free; widening is rejected at construction.
+
+    B{Units.} Degrees Celsius regardless of the model's unit system,
+    unconverted.
+
+    B{Requires} C{[OPTIONS] HEAT_TRANSPORT YES}; L{bind} raises with that
+    message otherwise.
+
+    @ivar _sources: Heat-source pathway names supplied at construction.
+    @type _sources: list[str]
+    @ivar _name: Action-space key for this factory.
+    @type _name: str
+    """
+
+    def __init__(
+        self,
+        sources: Sequence[str],
+        low: float = _HEAT_TEMP_MIN_C,
+        high: float = _HEAT_TEMP_MAX_C,
+        name: str = "heat_source_temperature_setpoint",
+    ) -> None:
+        """
+        @param sources: Heat-source pathway names to drive.
+        @type sources: sequence of str
+        @param low: Lower bound in degC (default: the engine minimum C{-50}).
+        @type low: float
+        @param high: Upper bound in degC (default: the engine maximum C{100}).
+        @type high: float
+        @param name: Action-space key for this factory.
+        @type name: str
+        @raise ValueError: If C{sources} is empty, C{high <= low}, or the
+            range extends beyond the engine's C{[-50, 100]}.
+        """
+        if not sources:
+            raise ValueError(
+                "HeatSourceTemperatureSetpoint requires at least one source"
+            )
+        self._sources: list[str] = [str(s).upper() for s in sources]
+        self._low = float(low)
+        self._high = float(high)
+        if not (self._high > self._low):
+            raise ValueError(
+                f"high ({self._high}) must be strictly greater than low ({self._low})"
+            )
+        if self._low < _HEAT_TEMP_MIN_C or self._high > _HEAT_TEMP_MAX_C:
+            raise ValueError(
+                f"HeatSourceTemperatureSetpoint bounds [{self._low}, "
+                f"{self._high}] degC extend beyond the engine's refusal range "
+                f"[{_HEAT_TEMP_MIN_C}, {_HEAT_TEMP_MAX_C}]. The engine refuses "
+                "(does not clamp) an out-of-range temperature and a refused "
+                "write does not take effect, so a sampled action outside that "
+                "range would silently leave the temperature unchanged."
+            )
+        self._name = name
+        self._bound = False
+
+    @property
+    def name(self) -> str:
+        """Action-space key for this factory.
+
+        @rtype: str
+        """
+        return self._name
+
+    @property
+    def space(self) -> spaces.Box:
+        """Per-source temperature in C{[low, high]} degC.
+
+        @rtype: L{gymnasium.spaces.Box}
+        """
+        return spaces.Box(
+            low=self._low,
+            high=self._high,
+            shape=(len(self._sources),),
+            dtype=np.float32,
+        )
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Verify heat transport is on and every named pathway is valid.
+
+        Heat sources are addressed by name rather than index, so there is
+        nothing to resolve; C{bind} validates instead.
+
+        @param adapter: Adapter wrapping the open solver.
+        @type adapter: L{SolverAdapter}
+        @raise RuntimeError: If the engine build has no heat module, or the
+            open model does not enable C{HEAT_TRANSPORT}.
+        @raise ValueError: If a name is not a heat-source pathway.
+        """
+        known = set(adapter.heat.source_kinds())
+        unknown = [s for s in self._sources if s not in known]
+        if unknown:
+            raise ValueError(
+                f"HeatSourceTemperatureSetpoint: unknown heat source(s) "
+                f"{unknown!r}. Valid pathways: {sorted(known)!r}"
+            )
+        self._bound = True
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        """Push the sampled temperatures into the engine.
+
+        @param adapter: Adapter wrapping the running solver.
+        @type adapter: L{SolverAdapter}
+        @param value: 1-D float array of length C{len(sources)}, degC.
+        @type value: numpy.ndarray
+        @raise RuntimeError: If L{bind} was not called first.
+        """
+        if not self._bound:
+            raise RuntimeError(
+                "HeatSourceTemperatureSetpoint.bind() must be called before apply()"
+            )
+        # Defensive clip — agents may sample outside the declared bounds
+        # under numerical noise. Here the clip does more than tidy up: the
+        # engine REFUSES a temperature outside [-50, 100] instead of
+        # clamping it, and a refused write does not take effect, so an
+        # unclipped stray value would leave the previous step's setpoint
+        # silently in force rather than erroring.
+        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        for source, v in zip(self._sources, clipped, strict=True):
+            adapter.heat.set_source_temp(source, float(v))

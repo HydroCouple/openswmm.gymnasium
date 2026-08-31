@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — process-configuration surfaces (heat, water age, reactions)
+
+- **Adapter reach for the engine's heat, water-age and reaction modules.**
+  New `_HeatCompat`, `_WaterAgeCompat` and `_ReactionsCompat` shims behind
+  lazily-cached `SolverAdapter.heat` / `.water_age` / `.reactions`
+  accessors. These are *configuration* surfaces, not observation surfaces:
+  the C API exposes no per-node or per-link temperature, water-age or
+  species-concentration getter, so nothing here is wired into
+  `ObservationBuilder`. The only genuinely observable new state is the two
+  current-step scalars `heat.current_shortwave` and
+  `heat.current_cloud_fraction`, both of which are forcing rather than state.
+- **Two-tier guards on the new optional accessors.** Tier 1 asks whether the
+  engine *build* carries the module; tier 2 asks whether the open *model*
+  enables it (`[OPTIONS] HEAT_TRANSPORT` / `WATER_AGE`). Both raise with the
+  remedy named rather than returning defaults, because a heat or water-age
+  configuration written into a model that never routes it is a silent no-op —
+  stored, never transported, nothing raised, no reward signal moving. None of
+  the three is added to `_REQUIRED_MODULE_ATTRS`: listing an optional module
+  would make a partial build unusable for every env rather than only for the
+  envs that touch it.
+- **`ReactionCoefficientValue` design factory.** Searches
+  `[REACTION_COEFFICIENTS]` **PARAMETER** values — the rate constants,
+  half-saturation constants, yields and stoichiometric factors a
+  water-quality modeller normally fits by hand. Turns calibration into an
+  ordinary optimisation over the same env machinery that does CIP sizing.
+  CONSTANT coefficients are refused at `bind` rather than written and
+  silently ignored. Bounds are in the model's own expression units,
+  unconverted.
+- **`HeatSourceTemperature` design factory** — global inlet temperature per
+  heat-source pathway, degC, bounded by default to the engine's own
+  `[-50, 100]` refusal range so a sampled action can never be refused
+  mid-episode (the engine refuses rather than clamps, and a refused write
+  does not take effect).
+- **`WaterAgeSourceAge` design factory** — global source age per water-age
+  pathway, hours. Negative values are legal and meaningful (age-volume
+  extraction; the engine clamps the *result* at zero, not the input), so the
+  low bound is not floored at zero and has no default.
+- **`HeatSourceTemperatureSetpoint` runtime actuator** — per-pathway inlet
+  temperature applied every step. Heat source writes are documented live, so
+  the same engine call backs both the design factory and this actuator. No
+  water-age runtime twin ships: a source's assigned age is a bookkeeping
+  label rather than something an operator can move during an event, so
+  per-step modulation would let an agent chase reward by rewriting its own
+  accounting.
+- **Preissmann-slot link readers.** `SolverAdapter.links.slot_volume`,
+  `.peak_slot_share` and `.slot_share`. All three read a hard `0.0` under any
+  router other than `FLOW_ROUTING FV` — a value indistinguishable from "no
+  slot flow" — which is documented loudly at the call site.
+- **`SurchargeSlotShare` reward term.** Run-level Preissmann-slot storage
+  share as a pressurisation proxy; dimensionless in `[0, 1]`, the one term
+  with no unit-system dependence. Registered as `"surcharge_slot_share"`.
+  `bind` reads `[OPTIONS] FLOW_ROUTING` and **raises** on any non-FV router
+  rather than reporting a permanently perfect network. The statistic is a
+  ratio of time integrals and cannot be reconstructed from env-step samples.
+- **`SolverAdapter.get_option`** — the read counterpart of `set_option`,
+  used to answer model-level questions such as which router is active.
+
+### Added — declarative-config reach (`openswmm.mcp`)
+
+- **Observation collectors reachable from an `EnvConfig`.**
+  `add_pollutant_concentration`, `add_link_pollutant_concentration` and
+  `add_2d_vertex_depths` existed in code but had no `_OBS_METHODS` entry, so
+  they were unreachable declaratively. Added as the `ObservationSpec` fields
+  `node_pollutant_concentration` / `link_pollutant_concentration` (each a
+  pollutant-ID → element-IDs map, so several pollutants can be requested at
+  once) and `vertex_depths_2d`.
+- **Registry entries** for every new factory and term, plus `tss_load`,
+  which shipped in G4 but was never registered and so was likewise
+  unreachable from a declarative config.
+
+### Fixed — documentation
+
+- `docs/user-guide/observations.md`'s collector table omitted six collectors
+  that exist in code (`add_node_volumes`, `add_node_lateral_inflows`,
+  `add_link_velocities`, `add_link_capacities`, `add_link_volumes`,
+  `add_2d_vertex_depths`).
+- `docs/user-guide/rewards.md`'s term table omitted `UncontrolledDischarge`,
+  `StorageUnderUtilization` and `PumpEnergy`, all three of which the prose
+  below it already referenced.
+- `docs/user-guide/action_spaces.md`'s runtime table omitted
+  `NodeLateralInflow` and named the wrong engine surface for `OrificeSetting`
+  (`Controls.set_link_setting`, which the engine recomputes each routing step
+  and so does not stick, rather than `Links.set_target_setting`).
+- `docs/developer/testing.md`'s "Fixtures" section described pytest
+  `conftest.py` fixtures that no longer exist; it now documents the
+  `tests/unit/_base.py` base classes, the hand-rolled-fake convention, and
+  the `skipUnless` idiom for build-optional engine surfaces. The run, lint
+  and coverage commands were corrected to stdlib `unittest`.
+
 ### Changed
 
 - **Relicensed from MIT to the Apache License, Version 2.0.** `LICENSE` now
