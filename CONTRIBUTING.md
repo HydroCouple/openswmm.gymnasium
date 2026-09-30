@@ -95,7 +95,7 @@ sphinx-build -b html docs docs/_build/html
 
 ## 5. Project Structure
 
-See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the authoritative module layout. Summary:
+See [docs/developer/architecture.md](docs/developer/architecture.md) for the class hierarchy and data flow. Summary:
 
 ```
 src/openswmm_gymnasium/

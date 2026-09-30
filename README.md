@@ -22,9 +22,9 @@ API, so every environment runs a real hydraulic/hydrologic simulation — not a
 surrogate — and many environments can be stepped concurrently in separate
 threads.
 
-> **Status:** pre-release, under active development. See
-> [docs/IMPLEMENTATION_PLAN.md](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/docs/IMPLEMENTATION_PLAN.md)
-> for the authoritative scope, architecture, and milestone schedule.
+> **Status:** pre-release, under active development. The
+> [architecture page](docs/developer/architecture.md) describes the package
+> layout, and the [CHANGELOG](CHANGELOG.md) records what has landed.
 
 ---
 

@@ -31,7 +31,9 @@ exclude_patterns = [
     "_build",
     "Thumbs.db",
     ".DS_Store",
-    "IMPLEMENTATION_PLAN.md",  # internal planning doc; not part of public docs
+    "*_PLAN*.md",              # plans are working records: never published
+    "**/*_PLAN*.md",
+    "**/*HANDOFF*.md",
     "api/_autogen/**",         # stale autosummary output; ignore if present
 ]
 

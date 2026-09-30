@@ -208,3 +208,10 @@ __marimo__/
 
 # Reviewable test outputs (CLAUDE.md 4.1)
 tests/_output/
+
+# Plans, handoffs and verification write-ups are working records, never
+# committed.
+*_PLAN.md
+*_PLAN_*.md
+*HANDOFF*.md
+*VERIFICATION*.md

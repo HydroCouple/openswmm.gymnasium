@@ -1,8 +1,7 @@
 # OpenSWMM Gymnasium — package metadata + dev tooling configuration.
 #
-# Authoritative implementation plan: docs/IMPLEMENTATION_PLAN.md.
-# Per §0 #7: targets the handle-based, thread-safe openswmm.engine v6 only.
-# Per §0 Q4: bundled benchmarks are 10 contrived MO-RL scenarios (§6A).
+# Targets the handle-based, thread-safe openswmm.engine v6 only.
+# Bundled benchmarks are 10 contrived MO-RL scenarios.
 
 [build-system]
 requires = ["hatchling"]
@@ -49,14 +48,14 @@ dependencies = [
     "gymnasium>=1.0",
     "numpy>=1.21",
     # openswmm.engine v6 — handle-based, thread-safe. Legacy v5 singleton
-    # solver under openswmm.legacy.engine is NOT a fallback. See plan §0 #7 / §2.3.
+    # solver under openswmm.legacy.engine is NOT a fallback.
     "openswmm>=6.0.0.dev2",
 ]
 
 [project.optional-dependencies]
 mo       = ["mo-gymnasium>=1.0"]            # multi-objective extension
-platypus = ["platypus-opt>=1.2"]            # sole supported MOO adapter (plan §5.4)
-viz      = ["plotly>=5.18"]                 # sole supported plot backend (plan §5.5)
+platypus = ["platypus-opt>=1.2"]            # sole supported MOO adapter
+viz      = ["plotly>=5.18"]                 # sole supported plot backend
 spec     = ["pydantic>=2"]                  # openswmm_gymnasium.spec (JSON env configs)
 dev = [
     "pytest>=7.0",
@@ -69,7 +68,7 @@ docs = [
     "pydata-sphinx-theme>=0.15",
     "myst-parser>=3.0",
     "sphinx-autodoc-typehints",
-    "sphinx-epytext>=0.0.4",  # epytext docstring rendering — plan §13
+    "sphinx-epytext>=0.0.4",  # epytext docstring rendering
     "sphinxcontrib-mermaid>=1.0",  # ```mermaid``` diagrams in README/landing page
 ]
 
@@ -89,7 +88,7 @@ packages = ["src/openswmm_gymnasium"]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
 markers = [
-    # See plan §8.2 — the engine is a required dep, so integration tests run
+    # The engine is a required dep, so integration tests run
     # by default. This marker is retained as a no-op for symmetry with the
     # openswmm.mcp test conventions.
     "integration: end-to-end tests against the real openswmm.engine.Solver",

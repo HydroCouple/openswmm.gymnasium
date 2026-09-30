@@ -22,8 +22,8 @@ Farama Gymnasium environments for joint CIP + RTC optimization of SWMM
 networks, backed by the handle-based, thread-safe C{openswmm.engine} v6
 Python API.
 
-See L{docs/IMPLEMENTATION_PLAN} for the authoritative architecture and
-scope. Environment IDs are registered at package import time so
+The architecture page of the documentation describes the package layout.
+Environment IDs are registered at package import time so
 C{gymnasium.make("OpenSWMM/...")} works without further setup.
 
 @author: Caleb Buahin
