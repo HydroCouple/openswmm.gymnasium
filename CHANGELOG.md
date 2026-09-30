@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — any engine field as an observation or an action
+
+- **Catalog field paths.** `SolverAdapter.read`, `read_all`, `write` and
+  `index` read and write any numeric element field by its path in
+  `openswmm.engine.catalog` (`"node.depth"`, `"link.stats.max_flow"`);
+  `field_entry` and `element_kind` validate a path. Requires an engine build
+  that ships the catalog.
+- **`ObservationBuilder.add_field(path, ids)`** observes any numeric element
+  field. The named `add_node_depths`, `add_link_flows`, ... methods are now
+  thin aliases for the matching field paths.
+- **`FieldSetpoint` runtime actuator** writes any writable numeric element
+  field every control step, clipped to `[low, high]`.
+
+### Changed
+
+- Control-curve observations (`ControlCurveMetricReader`) read through the
+  catalog field paths (`node.depth`, `node.head`, `node.volume`,
+  `node.inflow`).
+- Removed the per-field compatibility getters and `_GagesCompat` from the
+  private `_engine` adapter; the field paths above replace them.
+
+### Fixed
+
+- `test_retention_curve_reduces_discharge` used a retention curve that never
+  throttled the orifice at the tank depths the model reaches; the curve now
+  starts low enough to bind.
+
 ### Added — process-configuration surfaces (heat, water age, reactions)
 
 - **Adapter reach for the engine's heat, water-age and reaction modules.**

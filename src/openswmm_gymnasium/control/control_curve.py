@@ -54,14 +54,14 @@ from dataclasses import dataclass
 
 from openswmm_gymnasium._engine import SolverAdapter
 
-# Supported observation attributes -> SolverAdapter node getter name. The
-# divisor for ``x_normalized`` is always the node's max (rim) depth.
+# Supported observation attributes -> engine catalog field. The divisor for
+# ``x_normalized`` is always the node's max (rim) depth.
 _NODE_OBS_GETTERS: dict[str, str] = {
-    "depthN": "get_depth",
-    "depth": "get_depth",
-    "headN": "get_head",
-    "volumeN": "get_volume",
-    "inflowN": "get_inflow",
+    "depthN": "node.depth",
+    "depth": "node.depth",
+    "headN": "node.head",
+    "volumeN": "node.volume",
+    "inflowN": "node.inflow",
 }
 
 #: Valid monotonicity constraints for a curve.
@@ -204,10 +204,10 @@ def project_monotonic(y_values: Sequence[float], mode: str) -> tuple[float, ...]
 
 @dataclass
 class _ObsProbe:
-    """Resolved per-asset read plan: getter, engine index, divisor."""
+    """Resolved per-asset read plan: catalog field, engine index, divisor."""
 
     link_id: str
-    getter_name: str
+    field: str
     idx: int
     divisor: float  # full (rim) depth when normalizing; else 1.0
 
@@ -268,7 +268,7 @@ class ControlCurveMetricReader:
         assert self._probes is not None, "bind() before read()"
         out: dict[str, float] = {}
         for p in self._probes:
-            raw = float(getattr(adapter.nodes, p.getter_name)(p.idx))
+            raw = float(adapter.read(p.field, p.idx))
             out[p.link_id] = raw / p.divisor
         return out
 

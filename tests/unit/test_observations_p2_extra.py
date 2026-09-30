@@ -65,19 +65,19 @@ class TestNewCollectorsSize(unittest.TestCase):
 
 class TestNewCollectorsParity(BaseEngineTest):
     CASES = [
-        ("_NodeVolumeCollector", ["J1"]),
-        ("_NodeLateralInflowCollector", ["J1"]),
-        ("_LinkVelocityCollector", ["C1"]),
-        ("_LinkCapacityCollector", ["C1"]),
-        ("_LinkVolumeCollector", ["C1"]),
+        ("node.volume", ["J1"]),
+        ("node.lateral_inflow", ["J1"]),
+        ("link.velocity", ["C1"]),
+        ("link.capacity", ["C1"]),
+        ("link.volume", ["C1"]),
     ]
 
     def test_bulk_equals_scalar(self):
         adapter = self.make_adapter(open=True)
         adapter.step()
-        for cls_name, ids in self.CASES:
-            with self.subTest(collector=cls_name):
-                collector = getattr(_b, cls_name)(ids)
+        for path, ids in self.CASES:
+            with self.subTest(field=path):
+                collector = _b._FieldCollector(path, ids)
                 collector.bind(adapter)
                 bulk = collector.collect(adapter)
                 scalar = np.fromiter(

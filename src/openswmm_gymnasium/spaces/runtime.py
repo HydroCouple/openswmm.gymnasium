@@ -57,7 +57,7 @@ from collections.abc import Sequence
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry
 
 
 class OrificeSetting:
@@ -231,6 +231,86 @@ class NodeLateralInflow:
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, self._max_inflow)
         for idx, v in zip(self._node_idxs, clipped, strict=True):
             adapter.nodes.set_lateral_inflow(idx, float(v))
+
+
+class FieldSetpoint:
+    """Box action writing any writable numeric engine field every control step.
+
+    C{path} is a catalog path of an element field such as
+    C{"link.target_setting"}, C{"node.lateral_inflow"} or
+    C{"subcatchment.rain_scale_factor"} (see L{openswmm.engine.catalog});
+    each component is that field's value for one element, in C{[low, high]}
+    and the field's own units. Prefer the named factories where one exists:
+    they encode engine semantics (for example that C{control_setting} is
+    recomputed from C{target_setting} every step) that a raw field write
+    does not. Some fields (link roughness, node maximum depth, ...) can
+    only be written before the simulation starts; writing one of those
+    during an episode raises the engine's lifecycle error.
+
+    @ivar _path: Catalog field path.
+    @ivar _ids: Symbolic element IDs.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        ids: Sequence[str],
+        low: float,
+        high: float,
+        name: str | None = None,
+    ) -> None:
+        """
+        @param path: Catalog path of a writable numeric element field.
+        @param ids: Element IDs to drive.
+        @param low: Lower bound of every component.
+        @param high: Upper bound of every component.
+        @param name: Action-space key; defaults to the path.
+        @raise ValueError: Unknown or read-only path, no ids, or C{low >= high}.
+        """
+        entry = field_entry(path)
+        if entry.get("access") != "rw":
+            raise ValueError(f"FieldSetpoint: {path!r} is read-only")
+        if not ids:
+            raise ValueError("FieldSetpoint requires at least one id")
+        if not low < high:
+            raise ValueError("FieldSetpoint requires low < high")
+        self._path = path
+        self._kind = element_kind(path)
+        self._ids = list(ids)
+        self._low, self._high = float(low), float(high)
+        self._name = name or path
+        self._idxs: list[int] | None = None
+
+    @property
+    def name(self) -> str:
+        """Action-space key for this factory.
+
+        @rtype: str
+        """
+        return self._name
+
+    @property
+    def space(self) -> spaces.Box:
+        """Per-element value in C{[low, high]}.
+
+        @rtype: L{gymnasium.spaces.Box}
+        """
+        return spaces.Box(low=self._low, high=self._high, shape=(len(self._ids),), dtype=np.float32)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        """Resolve symbolic IDs to engine indices."""
+        self._idxs = [adapter.index(self._kind, i) for i in self._ids]
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        """Write the clipped values to the engine.
+
+        @raise RuntimeError: If L{bind} was not called first.
+        """
+        if self._idxs is None:
+            raise RuntimeError("FieldSetpoint.bind() must be called before apply()")
+        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        for idx, v in zip(self._idxs, clipped, strict=True):
+            adapter.write(self._path, idx, float(v))
 
 
 #: Engine refusal range for a heat source temperature, degrees Celsius.

@@ -36,22 +36,22 @@ from openswmm_gymnasium.observations import builder as _b
 
 
 class TestBulkScalarParity(BaseEngineTest):
-    # (collector class, element ids) — each is bulk-backed.
+    # (catalog field path, element ids) — each is bulk-backed.
     CASES = [
-        ("_NodeDepthCollector", ["J1"]),
-        ("_NodeHeadCollector", ["J1"]),
-        ("_NodeInflowCollector", ["J1"]),
-        ("_NodeOverflowCollector", ["J1"]),
-        ("_LinkFlowCollector", ["C1"]),
-        ("_LinkDepthCollector", ["C1"]),
+        ("node.depth", ["J1"]),
+        ("node.head", ["J1"]),
+        ("node.inflow", ["J1"]),
+        ("node.overflow", ["J1"]),
+        ("link.flow", ["C1"]),
+        ("link.depth", ["C1"]),
     ]
 
     def test_bulk_equals_scalar(self):
         adapter = self.make_adapter(open=True)
         adapter.step()  # advance so there is non-trivial state
-        for cls_name, ids in self.CASES:
-            with self.subTest(collector=cls_name):
-                collector = getattr(_b, cls_name)(ids)
+        for path, ids in self.CASES:
+            with self.subTest(field=path):
+                collector = _b._FieldCollector(path, ids)
                 collector.bind(adapter)
                 # Bulk path (what collect() now uses).
                 bulk = collector.collect(adapter)
@@ -65,6 +65,6 @@ class TestBulkScalarParity(BaseEngineTest):
 
     def test_bulk_array_present(self):
         adapter = self.make_adapter(open=True)
-        c = _b._NodeDepthCollector(["J1"])
+        c = _b._FieldCollector("node.depth", ["J1"])
         c.bind(adapter)
         assert c._bulk_array(adapter) is not None

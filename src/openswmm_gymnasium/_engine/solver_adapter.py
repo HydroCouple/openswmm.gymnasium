@@ -63,12 +63,12 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import openswmm.engine as _engine
 from openswmm.engine import (
     Controls,
     EngineState,
-    Gages,
     HotStart,
     Inflows,
     Infrastructure,
@@ -78,8 +78,51 @@ from openswmm.engine import (
     Solver,
     Subcatchments,
 )
+from openswmm.engine import catalog as _catalog
 
 PathLike = str | os.PathLike
+
+
+# Scalar field types an observation or actuator can carry as one float.
+_NUMERIC = frozenset({"float", "int", "bool"})
+
+
+def field_entry(path: str) -> dict[str, Any]:
+    """Catalog entry of a numeric element field such as C{"node.depth"}.
+
+    Field paths name an element kind, optional sub-views and a property:
+    C{"link.flow"}, C{"link.stats.max_flow"}, C{"subcatchment.runoff"}.
+    Every numeric property in L{openswmm.engine.catalog} is addressable.
+
+    @param path: Dotted catalog path.
+    @type path: str
+    @raise ValueError: If the path is not a numeric property of an element kind.
+    @rtype: dict
+    """
+    try:
+        entry = _catalog.lookup(path)
+    except KeyError:
+        raise ValueError(
+            f"{path!r} is not an engine field; see openswmm.engine.catalog for valid paths"
+        ) from None
+    if entry["form"] != "property" or entry["type"] not in _NUMERIC:
+        raise ValueError(f"{path!r} is not a numeric property ({entry['type'] or entry['form']})")
+    element_kind(path)
+    return entry
+
+
+def element_kind(path: str) -> str:
+    """The element kind a field path belongs to (C{"link"} for C{"link.stats.max_flow"}).
+
+    @raise ValueError: If the path does not start with an element kind.
+    @rtype: str
+    """
+    kind = path.split(".", 1)[0]
+    if "collection" not in _catalog.targets().get(kind, {}):
+        kinds = sorted(k for k, t in _catalog.targets().items() if "collection" in t)
+        raise ValueError(f"{path!r} does not start with an element kind ({', '.join(kinds)})")
+    return kind
+
 
 # OADate epoch: serial day 0 is 1899-12-30 (midnight). An OADate is the
 # number of decimal days since this epoch, so its fractional part is the
@@ -253,18 +296,6 @@ class _NodesCompat:
     def get_depth(self, idx: int) -> float:
         return self._col[idx].depth
 
-    def get_head(self, idx: int) -> float:
-        return self._col[idx].head
-
-    def get_inflow(self, idx: int) -> float:
-        return self._col[idx].inflow
-
-    def get_overflow(self, idx: int) -> float:
-        return self._col[idx].overflow
-
-    def get_volume(self, idx: int) -> float:
-        return self._col[idx].volume
-
     def get_lateral_inflow(self, idx: int) -> float:
         return self._col[idx].lateral_inflow
 
@@ -321,19 +352,6 @@ class _NodesCompat:
         """
         return self._col.qualities(pollutant)
 
-    def array(self, name: str):
-        """Return a whole-network bulk array property of the node collection.
-
-        Exposes the engine's vectorized getters (e.g. ``depths``, ``heads``,
-        ``inflows``, ``overflows``, ``volumes``, ``lateral_inflows``) so a
-        collector can fetch all values in one FFI call instead of N scalar
-        round-trips.
-
-        @param name: Bulk property name on the engine ``Nodes`` collection.
-        @rtype: numpy.ndarray
-        """
-        return getattr(self._col, name)
-
 
 class _LinksCompat:
     """Scalar link accessor over the v6 element-object ``Links`` collection."""
@@ -367,15 +385,6 @@ class _LinksCompat:
         # there. (control_setting set via Controls.set_link_setting is recomputed
         # from the target every step, so it does not stick without a rule.)
         self._col[idx].target_setting = value
-
-    def get_velocity(self, idx: int) -> float:
-        return self._col[idx].velocity
-
-    def get_capacity(self, idx: int) -> float:
-        return self._col[idx].capacity
-
-    def get_volume(self, idx: int) -> float:
-        return self._col[idx].volume
 
     def set_roughness(self, idx: int, value: float) -> None:
         self._col[idx].roughness = value
@@ -466,17 +475,6 @@ class _LinksCompat:
         """
         return self._col.qualities(pollutant)
 
-    def array(self, name: str):
-        """Return a whole-network bulk array property of the link collection.
-
-        Exposes the engine's vectorized getters (e.g. ``flows``, ``depths``,
-        ``velocities``, ``capacities``, ``volumes``) for single-call reads.
-
-        @param name: Bulk property name on the engine ``Links`` collection.
-        @rtype: numpy.ndarray
-        """
-        return getattr(self._col, name)
-
 
 class _ControlsCompat:
     """Scalar control accessor over the v6 ``Controls`` collection.
@@ -513,14 +511,6 @@ class _SubcatchmentsCompat:
     def get_index(self, sub_id: str) -> int:
         return self._col.get_index(sub_id)
 
-    def get_runoff(self, idx: int) -> float:
-        return self._col[idx].runoff
-
-    def get_groundwater(self, idx: int) -> float:
-        # Groundwater outflow rate (swmm_subcatch_get_groundwater); project
-        # flow units. 0.0 on subcatchments without an aquifer.
-        return self._col[idx].groundwater
-
     def get_gw_params(self, idx: int) -> tuple:
         # (surf_elev, a1, b1, a2, b2, a3, tw, hstar) — [GROUNDWATER] token
         # order; requires an aquifer to be assigned.
@@ -541,20 +531,6 @@ class _SubcatchmentsCompat:
         # swmm_subcatch_set_gw_params; requires an aquifer to be assigned.
         self._col[idx].set_gw_params(surf_elev, a1, b1, a2, b2, a3, tw, hstar)
 
-
-class _GagesCompat:
-    """Scalar rain-gage accessor over the v6 ``Gages`` collection."""
-
-    __slots__ = ("_col",)
-
-    def __init__(self, col: Gages) -> None:
-        self._col = col
-
-    def get_index(self, gage_id: str) -> int:
-        return self._col.get_index(gage_id)
-
-    def get_rainfall(self, idx: int) -> float:
-        return self._col[idx].rainfall
 
 
 class _InfrastructureCompat:
@@ -1117,7 +1093,6 @@ class SolverAdapter:
         self._links: Links | None = None
         self._controls: Controls | None = None
         self._subcatchments: Subcatchments | None = None
-        self._gages: Gages | None = None
         self._infrastructure: _InfrastructureCompat | None = None
         self._inflows: _InflowsCompat | None = None
         self._pollutants: _PollutantsCompat | None = None
@@ -1581,6 +1556,43 @@ class SolverAdapter:
         """
         self._solver.options[name] = value
 
+    # -- Catalog field access ------------------------------------------------
+    #
+    # Any numeric element property the engine exposes, addressed by its
+    # catalog path. Observation collectors and runtime actuators use these,
+    # so a new engine field is observable/actuatable without new adapter code.
+
+    def index(self, kind: str, element_id: str) -> int:
+        """Engine index of element C{element_id} of catalog kind C{kind} (C{"node"}, ...).
+
+        @rtype: int
+        """
+        collection = _catalog.targets()[kind]["collection"]
+        return int(_catalog.resolve(self._solver, collection, None).get_index(element_id))
+
+    def read(self, path: str, idx: int) -> Any:
+        """Value of field C{path} (e.g. C{"link.stats.max_flow"}) on element C{idx}."""
+        entry = _catalog.lookup(path)
+        return getattr(_catalog.resolve(self._solver, entry["target"], idx), entry["name"])
+
+    def read_all(self, path: str):
+        """Whole-collection array for C{path} when the engine has a bulk getter, else C{None}.
+
+        @rtype: numpy.ndarray or None
+        """
+        bulk = _catalog.lookup(path).get("bulk")
+        if bulk is None:
+            return None
+        target, _, name = bulk.rpartition(".")
+        return getattr(_catalog.resolve(self._solver, target, None), name)
+
+    def write(self, path: str, idx: int, value: Any) -> None:
+        """Set field C{path} on element C{idx} (the field must be writable)."""
+        entry = _catalog.lookup(path)
+        if entry.get("access") != "rw":
+            raise ValueError(f"{path!r} is read-only")
+        setattr(_catalog.resolve(self._solver, entry["target"], idx), entry["name"], value)
+
     @property
     def nodes(self) -> _NodesCompat:
         """Lazily-constructed, cached scalar node accessor.
@@ -1621,15 +1633,6 @@ class SolverAdapter:
             self._subcatchments = _SubcatchmentsCompat(Subcatchments(self._solver))
         return self._subcatchments
 
-    @property
-    def gages(self) -> _GagesCompat:
-        """Lazily-constructed, cached scalar rain-gage accessor.
-
-        @rtype: L{_GagesCompat}
-        """
-        if self._gages is None:
-            self._gages = _GagesCompat(Gages(self._solver))
-        return self._gages
 
     @property
     def infrastructure(self) -> _InfrastructureCompat:

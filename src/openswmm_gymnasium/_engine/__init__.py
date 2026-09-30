@@ -32,6 +32,8 @@ from openswmm_gymnasium._engine.solver_adapter import (
     EngineCapabilityError,
     LegacySolverRejectedError,
     SolverAdapter,
+    element_kind,
+    field_entry,
     require_engine_capabilities,
 )
 
@@ -40,4 +42,6 @@ __all__ = [
     "LegacySolverRejectedError",
     "EngineCapabilityError",
     "require_engine_capabilities",
+    "field_entry",
+    "element_kind",
 ]

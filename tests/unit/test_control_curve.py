@@ -430,8 +430,11 @@ class TestEngineClosedLoop(BaseTestCase):
     def test_retention_curve_reduces_discharge(self):
         env = self._env()  # nonincreasing
         open_cost = self._discharge(env, np.ones(4, dtype=np.float32))
-        # Retention: open when T1 low, throttle shut as it fills.
-        retain = self._discharge(env, np.array([1.0, 0.5, 0.1, 0.0], dtype=np.float32))
+        # Retention: throttle as T1 fills. T1 peaks near 0.8 ft of its 12 ft
+        # depth, so normalized x stays below ~0.07 and only the first curve
+        # segment is used; ORIF (2 ft RECT_CLOSED, SIDE) restricts flow only
+        # when setting * 2 ft < depth, so that segment must start low to bind.
+        retain = self._discharge(env, np.array([0.3, 0.15, 0.05, 0.0], dtype=np.float32))
         env.close()
         self.assertLess(retain, open_cost)
 

@@ -49,7 +49,7 @@ from collections.abc import Sequence
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry
 
 # =============================================================================
 # Internal collector base + helpers
@@ -128,237 +128,29 @@ class _ScalarReadCollector:
 # =============================================================================
 
 
-class _NodeDepthCollector(_ScalarReadCollector):
-    """Instantaneous water depth at each node."""
-
-    _kind_label = "add_node_depths"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_depth(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("depths")
-
-
-class _NodeHeadCollector(_ScalarReadCollector):
-    """Instantaneous hydraulic head at each node."""
-
-    _kind_label = "add_node_heads"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_head(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("heads")
-
-
-class _NodeInflowCollector(_ScalarReadCollector):
-    """Total inflow rate at each node."""
-
-    _kind_label = "add_node_inflows"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_inflow(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("inflows")
-
-
-class _NodeOverflowCollector(_ScalarReadCollector):
-    """Overflow (flooding) rate at each node."""
-
-    _kind_label = "add_node_overflows"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_overflow(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("overflows")
-
-
-class _NodeVolumeCollector(_ScalarReadCollector):
-    """Stored water volume at each node (project volume units)."""
-
-    _kind_label = "add_node_volumes"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_volume(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("volumes")
-
-
-class _NodeLateralInflowCollector(_ScalarReadCollector):
-    """Externally-applied lateral inflow at each node (project flow units)."""
-
-    _kind_label = "add_node_lateral_inflows"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_lateral_inflow(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.nodes.array("lateral_inflows")
-
-
-# =============================================================================
-# Link collectors
-# =============================================================================
-
-
-class _LinkFlowCollector(_ScalarReadCollector):
-    """Instantaneous flow through each link."""
-
-    _kind_label = "add_link_flows"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.links.get_flow(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.links.array("flows")
-
-
-class _LinkDepthCollector(_ScalarReadCollector):
-    """Instantaneous depth in each link."""
-
-    _kind_label = "add_link_depths"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.links.get_depth(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.links.array("depths")
-
-
-class _LinkVelocityCollector(_ScalarReadCollector):
-    """Flow velocity in each link (project length/time units)."""
-
-    _kind_label = "add_link_velocities"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.links.get_velocity(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.links.array("velocities")
-
-
-class _LinkCapacityCollector(_ScalarReadCollector):
-    """Fractional capacity / filling C{[0, 1]} of each link."""
-
-    _kind_label = "add_link_capacities"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.links.get_capacity(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.links.array("capacities")
-
-
-class _LinkVolumeCollector(_ScalarReadCollector):
-    """Stored water volume in each link (project volume units)."""
-
-    _kind_label = "add_link_volumes"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.links.get_volume(idx)
-
-    def _bulk_array(self, adapter):
-        return adapter.links.array("volumes")
-
-
-class _LinkSettingCollector(_ScalarReadCollector):
-    """Current control setting C{[0, 1]} for each link.
-
-    Useful for closed-loop RL agents that need to observe the prior
-    action they (or another controller) applied.
+class _FieldCollector(_ScalarReadCollector):
+    """Any numeric engine field of an element kind, addressed by catalog path.
+
+    C{"node.depth"}, C{"link.stats.max_flow"}, C{"subcatchment.runoff"} ...
+    -- every numeric property in L{openswmm.engine.catalog}. Reads use the
+    collection's bulk array when the engine has one, else one read per element.
     """
 
-    _kind_label = "add_link_settings"
+    def __init__(self, path: str, ids: Sequence[str], label: str | None = None) -> None:
+        self._kind_label = label or f"add_field({path!r})"
+        super().__init__(ids)
+        field_entry(path)  # fail at construction, naming the path, if it is unknown
+        self._path = path
+        self._kind = element_kind(path)
 
     def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
+        return [adapter.index(self._kind, i) for i in self._ids]
 
     def _read_scalar(self, adapter, idx):
-        return adapter.links.get_control_setting(idx)
+        return float(adapter.read(self._path, idx))
 
-
-# =============================================================================
-# Subcatchment + rain collectors
-# =============================================================================
-
-
-class _SubcatchRunoffCollector(_ScalarReadCollector):
-    """Runoff rate from each subcatchment."""
-
-    _kind_label = "add_subcatch_runoff"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.subcatchments.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.subcatchments.get_runoff(idx)
-
-
-class _SubcatchGroundwaterCollector(_ScalarReadCollector):
-    """Groundwater outflow rate from each subcatchment.
-
-    Reads :attr:`openswmm.engine.Subcatchment.groundwater` (project flow
-    units); ``0.0`` on subcatchments without an assigned aquifer. Useful for
-    agents that must observe slow baseflow / antecedent wetness in addition
-    to the fast runoff signal.
-    """
-
-    _kind_label = "add_subcatch_groundwater"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.subcatchments.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.subcatchments.get_groundwater(idx)
-
-
-class _RainfallCollector(_ScalarReadCollector):
-    """Rainfall intensity at each rain gage."""
-
-    _kind_label = "add_rainfall"
-
-    def _resolve_idxs(self, adapter):
-        return [adapter.gages.get_index(i) for i in self._ids]
-
-    def _read_scalar(self, adapter, idx):
-        return adapter.gages.get_rainfall(idx)
+    def _bulk_array(self, adapter):
+        return adapter.read_all(self._path)
 
 
 # =============================================================================
@@ -565,6 +357,26 @@ class ObservationBuilder:
     def __init__(self) -> None:
         self._collectors: list = []
 
+    # ----- Any engine field ----------------------------------------------
+
+    def add_field(self, path: str, ids: Sequence[str]) -> ObservationBuilder:
+        """Append a collector for any numeric engine field of an element kind.
+
+        C{path} is a catalog path such as C{"node.depth"},
+        C{"link.stats.max_flow"}, C{"subcatchment.infil"} or
+        C{"node.storage.seep_rate"}; see L{openswmm.engine.catalog}. The
+        named-feature methods below are shorthands for common paths.
+
+        @param path: Catalog field path.
+        @type path: str
+        @param ids: Element IDs to observe.
+        @type ids: sequence of str
+        @raise ValueError: If the path is not a numeric element field.
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_FieldCollector(path, ids))
+        return self
+
     # ----- Node features -------------------------------------------------
 
     def add_node_depths(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -575,7 +387,7 @@ class ObservationBuilder:
         @return: This builder, for chaining.
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeDepthCollector(node_ids))
+        self._collectors.append(_FieldCollector("node.depth", node_ids, "add_node_depths"))
         return self
 
     def add_node_heads(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -583,7 +395,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeHeadCollector(node_ids))
+        self._collectors.append(_FieldCollector("node.head", node_ids, "add_node_heads"))
         return self
 
     def add_node_inflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -591,7 +403,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeInflowCollector(node_ids))
+        self._collectors.append(_FieldCollector("node.inflow", node_ids, "add_node_inflows"))
         return self
 
     def add_node_overflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -599,7 +411,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeOverflowCollector(node_ids))
+        self._collectors.append(_FieldCollector("node.overflow", node_ids, "add_node_overflows"))
         return self
 
     def add_node_volumes(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -607,7 +419,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeVolumeCollector(node_ids))
+        self._collectors.append(_FieldCollector("node.volume", node_ids, "add_node_volumes"))
         return self
 
     def add_node_lateral_inflows(self, node_ids: Sequence[str]) -> ObservationBuilder:
@@ -615,7 +427,9 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_NodeLateralInflowCollector(node_ids))
+        self._collectors.append(
+            _FieldCollector("node.lateral_inflow", node_ids, "add_node_lateral_inflows")
+        )
         return self
 
     # ----- Link features -------------------------------------------------
@@ -625,7 +439,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkFlowCollector(link_ids))
+        self._collectors.append(_FieldCollector("link.flow", link_ids, "add_link_flows"))
         return self
 
     def add_link_depths(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -633,7 +447,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkDepthCollector(link_ids))
+        self._collectors.append(_FieldCollector("link.depth", link_ids, "add_link_depths"))
         return self
 
     def add_link_settings(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -641,7 +455,9 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkSettingCollector(link_ids))
+        self._collectors.append(
+            _FieldCollector("link.control_setting", link_ids, "add_link_settings")
+        )
         return self
 
     def add_link_velocities(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -649,7 +465,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkVelocityCollector(link_ids))
+        self._collectors.append(_FieldCollector("link.velocity", link_ids, "add_link_velocities"))
         return self
 
     def add_link_capacities(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -657,7 +473,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkCapacityCollector(link_ids))
+        self._collectors.append(_FieldCollector("link.capacity", link_ids, "add_link_capacities"))
         return self
 
     def add_link_volumes(self, link_ids: Sequence[str]) -> ObservationBuilder:
@@ -665,7 +481,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_LinkVolumeCollector(link_ids))
+        self._collectors.append(_FieldCollector("link.volume", link_ids, "add_link_volumes"))
         return self
 
     # ----- Subcatchment + rain features ---------------------------------
@@ -675,7 +491,9 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_SubcatchRunoffCollector(subcatch_ids))
+        self._collectors.append(
+            _FieldCollector("subcatchment.runoff", subcatch_ids, "add_subcatch_runoff")
+        )
         return self
 
     def add_subcatch_groundwater(
@@ -688,7 +506,9 @@ class ObservationBuilder:
         @type subcatch_ids: sequence of str
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_SubcatchGroundwaterCollector(subcatch_ids))
+        self._collectors.append(
+            _FieldCollector("subcatchment.groundwater", subcatch_ids, "add_subcatch_groundwater")
+        )
         return self
 
     def add_rainfall(self, gage_ids: Sequence[str]) -> ObservationBuilder:
@@ -696,7 +516,7 @@ class ObservationBuilder:
 
         @rtype: L{ObservationBuilder}
         """
-        self._collectors.append(_RainfallCollector(gage_ids))
+        self._collectors.append(_FieldCollector("gage.rainfall", gage_ids, "add_rainfall"))
         return self
 
     # ----- Water-quality features ----------------------------------------

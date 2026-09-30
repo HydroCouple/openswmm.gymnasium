@@ -59,6 +59,7 @@ from openswmm_gymnasium.spaces.design import (
 )
 from openswmm_gymnasium.spaces.policy import MarketPolicySpace, PolicyParam
 from openswmm_gymnasium.spaces.runtime import (
+    FieldSetpoint,
     HeatSourceTemperatureSetpoint,
     NodeLateralInflow,
     OrificeSetting,
@@ -69,6 +70,7 @@ __all__ = [
     "OrificeSetting",
     "NodeLateralInflow",
     "HeatSourceTemperatureSetpoint",
+    "FieldSetpoint",
     "DesignActionFactory",
     "LinkRoughness",
     "LinkLength",
