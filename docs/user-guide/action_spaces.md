@@ -1,8 +1,25 @@
 # Action spaces
 
-Per the plan §3 contract, every env exposes
-`Dict({"design": Dict({...}), "runtime": Dict({...})})`. Either half may
-be empty (e.g. for `SwmmRTCEnv` the design Dict is empty).
+Actions follow a design/runtime split: design factories act once per
+episode, runtime factories every step. An env's action space is a `Dict`
+holding only the halves it uses, because Gymnasium's `check_env` rejects an
+empty `Dict`:
+
+```{list-table}
+:header-rows: 1
+
+* - Env
+  - `action_space`
+* - `SwmmRTCEnv`
+  - `Dict({"runtime": Dict({...})})`
+* - `SwmmCIPEnv`
+  - `Dict({"design": Dict({...})})`
+* - `SwmmJointCIPRTCEnv`
+  - `Dict({"design": Dict({...}), "runtime": Dict({...})})`
+```
+
+Each inner key is the factory's `name`. Pass actions in the same shape;
+`step()` reads the halves it has, so an extra empty half is ignored.
 
 ## Runtime (RTC) factories
 
@@ -14,6 +31,12 @@ Applied **every step** via the appropriate engine setter.
 * - Factory
   - Space
   - Engine surface
+* - {py:class}`~openswmm_gymnasium.spaces.runtime.FieldSetpoint`
+  - `Box([low, high]^n)`
+  - Any **writable** numeric element field, by its catalog path
+    (`"link.target_setting"`, `"node.lateral_inflow"`, ...), clipped to the
+    bounds and written every step. Read-only paths are refused at
+    construction. See [Any writable field](#any-writable-field-fieldsetpoint).
 * - {py:class}`~openswmm_gymnasium.spaces.runtime.OrificeSetting`
   - `Box([0, 1]^n)`
   - `Links.set_target_setting` — the persistent runtime-control override.
@@ -34,6 +57,25 @@ Applied **every step** via the appropriate engine setter.
     engine's own `[-50, 100]` refusal range. **Open-loop**: the C API has no
     temperature getter, so the agent cannot observe what it is acting on.
 ```
+
+### Any writable field: `FieldSetpoint`
+
+`FieldSetpoint(path, ids, low, high)` actuates any writable numeric field of
+an element kind in the engine catalog. The named factories above add
+engine-specific behaviour (sub-view lookups, the heat module's two-tier
+guard); for a plain field, `FieldSetpoint` needs no new code:
+
+```python
+from openswmm_gymnasium.spaces import FieldSetpoint
+
+gate = FieldSetpoint("link.target_setting", ["ORIF1", "ORIF2"], 0.0, 1.0)
+inflow = FieldSetpoint("node.lateral_inflow", ["J1"], 0.0, 5.0)  # flow units
+```
+
+The action-space key is the path unless `name=` is given. Bounds are in the
+field's own units (`catalog.lookup(path)["units"]`). In a declarative config
+the kind is `field_setpoint`, with params `path`, `ids`, `low`, `high` and an
+optional `name`.
 
 There is deliberately **no water-age runtime twin**. Water-age source writes
 are live in exactly the same way, so one would be mechanically trivial — but

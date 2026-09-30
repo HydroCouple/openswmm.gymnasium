@@ -14,7 +14,8 @@ pip install openswmm.gymnasium                      # core
 pip install "openswmm.gymnasium[mo]"                # + multi-objective (mo-gymnasium)
 pip install "openswmm.gymnasium[platypus]"          # + Platypus MOO adapter
 pip install "openswmm.gymnasium[viz]"               # + Plotly trajectory visualizations
-pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
+pip install "openswmm.gymnasium[spec]"              # + JSON env specs (pydantic)
+pip install "openswmm.gymnasium[mo,platypus,viz,spec]"   # everything
 ```
 
 ## Install from source

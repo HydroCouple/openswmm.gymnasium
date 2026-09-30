@@ -1,13 +1,14 @@
 # Environments
 
-The package ships four Gymnasium env classes. All conform to the
-plan §3 action-space contract — `Dict({"design": ..., "runtime": ...})`
-— even when one half is empty for clarity.
+The package ships five Gymnasium env classes. The action-space envs expose
+a `Dict` with the design and runtime halves they use (see
+{doc}`/user-guide/action_spaces`); `SwmmControlEnv` takes a policy-parameter
+vector.
 
 ## `SwmmRTCEnv` — runtime-only
 
-Drives one or more runtime factories every `step()`. Design Dict is
-empty. Standard `gymnasium.Env`; returns `(obs, reward, terminated,
+Drives one or more runtime factories every `step()`. Its action space is
+`Dict({"runtime": ...})`. Standard `gymnasium.Env`; returns `(obs, reward, terminated,
 truncated, info)`.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmRTCEnv`.
@@ -61,6 +62,29 @@ It is controller-agnostic, driving any
   per-structure setting schedule.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmControlEnv`.
+
+## Engine requirements
+
+Each observation collector, reward term and action factory declares the
+engine catalog paths it reads or writes in a `requires` attribute, and every
+env checks them against the installed engine when it is constructed:
+
+```python
+from openswmm_gymnasium._engine import CORE_REQUIREMENTS, require_for
+
+require_for(builder, *factories, *reward_terms)  # what the envs do
+```
+
+A build without an optional module (2D, heat, water age, reactions, tables)
+therefore fails only the envs configured to use it, with an
+`EngineCapabilityError` naming every missing path, instead of failing every
+env at import or deep inside a rollout. `CORE_REQUIREMENTS` lists what every
+env needs. A custom component takes part by setting `requires` to a tuple of
+catalog paths.
+
+Whether the open *model* enables a module (`[OPTIONS] HEAT_TRANSPORT`,
+`WATER_AGE`, an active 2D surface) is a separate check made when the
+component binds, because the catalog cannot know it.
 
 ## Registered IDs
 

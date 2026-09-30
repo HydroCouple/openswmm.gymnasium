@@ -475,7 +475,7 @@ class ObservationBuilder:
 
         C{path} is a catalog path such as C{"node.depth"},
         C{"link.stats.max_flow"}, C{"subcatchment.infil"} or
-        C{"node.storage.seep_rate"}; see L{openswmm.engine.catalog}. The
+        C{"node.stats.max_depth"}; see L{openswmm.engine.catalog}. The
         named-feature methods below are shorthands for common paths.
 
         @param path: Catalog field path.

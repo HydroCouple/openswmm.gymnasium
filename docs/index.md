@@ -20,6 +20,7 @@ getting-started/quickstart
 user-guide/envs
 user-guide/action_spaces
 user-guide/observations
+user-guide/specs
 user-guide/rewards
 user-guide/scoring
 user-guide/wrappers

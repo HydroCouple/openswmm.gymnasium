@@ -23,8 +23,10 @@ surrogate — and many environments can be stepped concurrently in separate
 threads.
 
 > **Status:** pre-release, under active development. The
-> [architecture page](docs/developer/architecture.md) describes the package
-> layout, and the [CHANGELOG](CHANGELOG.md) records what has landed.
+> [architecture page](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/docs/developer/architecture.md)
+> describes the package layout, and the
+> [CHANGELOG](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/CHANGELOG.md)
+> records what has landed.
 
 ---
 
@@ -41,6 +43,11 @@ reinforcement-learning and multi-objective-optimization toolchain at it.
   joint environment that picks a design at `reset()` and controls it at runtime.
 - **Multi-objective native.** Built-in hypervolume, ε-indicator, IGD, R2, and
   spread scoring over the achieved Pareto front.
+- **Any engine field.** Observe any numeric field in the engine catalog
+  (`add_field`) or any per-cell 2D quantity (`add_cell_field`), actuate any
+  writable field (`FieldSetpoint`), and get each feature's units at `reset()`.
+- **Declarative specs.** Build any environment from JSON with
+  `openswmm_gymnasium.spec` (the `spec` extra).
 - **Batteries included.** Ten bundled benchmark scenarios (`b01`–`b10`),
   observation builders, reward terms, action wrappers, and Plotly trajectory
   visualizations.
@@ -62,6 +69,7 @@ flowchart TB
         WRAP["wrappers<br/>mask · remap · forecast · record"]
         VIZ["viz<br/>Plotly figures"]
         ADAPT["_engine<br/>SolverAdapter"]
+        SPEC["spec<br/>JSON env configs"]
     end
 
     subgraph Engine["openswmm.engine v6"]
@@ -69,6 +77,7 @@ flowchart TB
     end
 
     A --> ENV
+    SPEC --> ENV
     ENV --> OBS
     ENV --> ACT
     ENV --> REW
@@ -91,7 +100,8 @@ pip install openswmm.gymnasium                      # core
 pip install "openswmm.gymnasium[mo]"                # + multi-objective (mo-gymnasium)
 pip install "openswmm.gymnasium[platypus]"          # + Platypus MOO adapter
 pip install "openswmm.gymnasium[viz]"               # + Plotly trajectory visualizations
-pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
+pip install "openswmm.gymnasium[spec]"              # + JSON env specs (pydantic)
+pip install "openswmm.gymnasium[mo,platypus,viz,spec]"   # everything
 ```
 
 ### From source (for development)
@@ -99,7 +109,7 @@ pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
 ```bash
 git clone https://github.com/HydroCouple/openswmm.gymnasium.git
 cd openswmm.gymnasium
-pip install -e ".[dev,docs,mo,platypus,viz]"
+pip install -e ".[dev,docs,mo,platypus,viz,spec]"
 ```
 
 The `[dev]` extra installs `pytest`, `pytest-cov`, and `ruff`; `[docs]` adds

@@ -23,7 +23,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "myst_parser",
     "sphinxcontrib.mermaid",  # ```mermaid``` architecture/workflow diagrams
-    "sphinx_epytext",  # epytext docstring rendering — plan §13
+    "sphinx_epytext",  # epytext docstring rendering
 ]
 
 templates_path = ["_templates"]
