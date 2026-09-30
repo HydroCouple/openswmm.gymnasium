@@ -60,6 +60,7 @@ and consume a L{SolverAdapter} instance.
 
 from __future__ import annotations
 
+import importlib
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -174,42 +175,26 @@ def _reject_legacy(solver: object) -> None:
 # C API is still moving. Rather than a hard version floor — which a partial
 # build (e.g. ``OPENSWMM_BUILD_2D=OFF``) would satisfy while still lacking a
 # symbol, and which a newer-but-compatible build would fail — this package
-# probes for the specific engine surface it calls. Optional surfaces are
-# deliberately *not* listed here, because listing one would make every
-# partial build unusable for *every* env rather than only for the envs that
-# actually touch it. Each gets an accessor-level probe instead:
+# checks the specific engine surface it calls, named by catalog path
+# (``"stride"``, ``"tables"``, ``"link.target_setting"``).
 #
-#   openswmm.engine.Surface2D  -> SolverAdapter.surface2d
-#   openswmm.engine.Heat       -> SolverAdapter.heat
-#   openswmm.engine.WaterAge   -> SolverAdapter.water_age
-#   openswmm.engine.Reactions  -> SolverAdapter.reactions
-#
-# so a 1D-only / heat-less / reaction-less build stays fully usable for
-# hydraulic RTC and CIP work and fails, with the remedy named, only at the
-# moment something reaches for the missing module. The Preissmann-slot link
-# readers need no probe at all: they are plain attributes of the Link/
-# LinkStatsView wrappers that ship with every build, and their *model*-level
-# caveat (any non-FV router reads 0.0) is not a capability question — see
-# the block comment in _LinksCompat.
+# Only the adapter's own core (CORE_REQUIREMENTS) is checked for every env.
+# Observation collectors, action factories and reward terms declare what they
+# need in a ``requires`` attribute, and each env checks exactly the components
+# it is configured with (L{require_for}), so a partial build fails only the
+# envs that need the missing piece. The optional heat / water-age / reaction /
+# 2D modules additionally keep their accessor-level guards on SolverAdapter,
+# which also check that the open *model* enables the module — something no
+# catalog can know.
 
-_REQUIRED_MODULE_ATTRS: tuple[str, ...] = (
-    "Pollutants",       # G4 pollutant observations / TSSLoad
-    "Statistics",       # G5 engine statistics in reward terms
-    "Tables",           # G3 tabular (curve) storage design
-    "XSectionGeometry", # G2 shape-aware cross-section sizing
-    "StorageShape",
-)
-
-# (class name, attribute) pairs on already-imported engine classes.
-_REQUIRED_CLASS_ATTRS: tuple[tuple[str, str], ...] = (
-    ("Solver", "flow_units"),
-    ("Solver", "unit_system"),
-    ("Solver", "set_lenient_open"),
-    ("Solver", "open_errors"),
-    ("Solver", "open_warnings"),
-    ("Solver", "stride"),
-    ("Nodes", "qualities"),
-    ("Links", "qualities"),
+#: Solver members the adapter itself calls, needed by every env.
+CORE_REQUIREMENTS: tuple[str, ...] = (
+    "flow_units",
+    "unit_system",
+    "set_lenient_open",
+    "open_errors",
+    "open_warnings",
+    "stride",
 )
 
 
@@ -221,42 +206,60 @@ class EngineCapabilityError(RuntimeError):
     """
 
 
-def _missing_engine_capabilities(module) -> list[str]:
-    """Return the dotted names of required engine symbols C{module} lacks.
+def _engine_class(entry: dict, module) -> type | None:
+    """The runtime class behind catalog target C{entry}, or C{None} when absent."""
+    if module is not None:
+        return getattr(module, entry["class"], None)
+    cls = getattr(_engine, entry["class"], None)
+    if cls is None:
+        try:
+            cls = getattr(importlib.import_module(f"openswmm.engine.{entry['module']}"),
+                          entry["class"], None)
+        except ImportError:
+            return None
+    return cls
 
-    Pure function over a namespace object so it can be unit-tested without
-    a real engine build.
 
-    @param module: The C{openswmm.engine} module (or a stand-in namespace).
+def _missing_engine_capabilities(module=None, paths=CORE_REQUIREMENTS) -> list[str]:
+    """Return the catalog paths in C{paths} the engine lacks, with the symbol missing.
+
+    A path is a catalog member (C{"stride"}, C{"link.target_setting"}) or a
+    target (C{"tables"}, C{"xsect"}). C{module} substitutes a stand-in engine
+    namespace so the probe can be tested without a build.
+
+    @param module: Engine namespace; defaults to C{openswmm.engine}.
+    @param paths: Catalog paths to check.
     @rtype: list[str]
     """
+    targets = _catalog.targets()
     missing: list[str] = []
-    for name in _REQUIRED_MODULE_ATTRS:
-        if not hasattr(module, name):
-            missing.append(f"openswmm.engine.{name}")
-    for cls_name, attr in _REQUIRED_CLASS_ATTRS:
-        cls = getattr(module, cls_name, None)
+    for path in sorted(set(paths)):
+        if path in targets:
+            entry, attr = targets[path], None
+        else:
+            member = _catalog.lookup(path)
+            entry, attr = targets[member["target"]], member["name"]
+        cls = _engine_class(entry, module)
         if cls is None:
-            missing.append(f"openswmm.engine.{cls_name}")
-        elif not hasattr(cls, attr):
-            missing.append(f"openswmm.engine.{cls_name}.{attr}")
+            missing.append(f"{path} (openswmm.engine.{entry['class']})")
+        elif attr is not None and not hasattr(cls, attr):
+            missing.append(f"{path} (openswmm.engine.{entry['class']}.{attr})")
     return missing
 
 
-def require_engine_capabilities(module=None) -> None:
-    """Verify the installed engine exposes everything this package calls.
+def require_engine_capabilities(module=None, paths=CORE_REQUIREMENTS) -> None:
+    """Verify the installed engine exposes every catalog path in C{paths}.
 
-    Called once per L{SolverAdapter} construction (the result is not cached —
-    the check is a handful of C{hasattr} calls).
+    Called once per L{SolverAdapter} construction for the core, and by each
+    env for its configured components (L{require_for}).
 
     @param module: Namespace to probe. Defaults to C{openswmm.engine}.
+    @param paths: Catalog paths; defaults to L{CORE_REQUIREMENTS}.
     @raise EngineCapabilityError: If any required symbol is absent.
     """
-    if module is None:
-        module = _engine
-    missing = _missing_engine_capabilities(module)
+    missing = _missing_engine_capabilities(module, paths)
     if missing:
-        version = getattr(module, "__version__", "unknown")
+        version = getattr(module if module is not None else _engine, "__version__", "unknown")
         raise EngineCapabilityError(
             "The installed openswmm.engine (version "
             f"{version}) is missing "
@@ -267,81 +270,114 @@ def require_engine_capabilities(module=None) -> None:
         )
 
 
+def require_for(*components, module=None) -> None:
+    """Check the engine surface every component declares in its C{requires}.
+
+    Envs call this with their observation builder, action factories and
+    reward terms, so a build missing an optional piece fails only the envs
+    configured to use it.
+
+    @param components: Objects with an optional C{requires} iterable of catalog
+        paths (or L{ObservationBuilder}-like objects exposing C{requires()}).
+    @raise EngineCapabilityError: If any declared path is missing.
+    """
+    paths: set[str] = set()
+    for c in components:
+        req = getattr(c, "requires", ())
+        paths.update(req() if callable(req) else req)
+    if paths:
+        require_engine_capabilities(module, tuple(paths))
+
+
 # ---------------------------------------------------------------------------
 # Collection compatibility shims
 # ---------------------------------------------------------------------------
 #
-# The v6 engine exposes per-object element wrappers (``solver.nodes[idx].depth``,
-# ``solver.links[idx].roughness = v``) plus vectorized array properties, rather
-# than the scalar ``get_<x>(idx)`` / ``set_<x>(idx, v)`` collection methods the
-# rest of this package was written against. These thin shims re-expose that
-# scalar surface on top of the element-object API so observation builders,
-# reward terms, and design/runtime action factories need not change.
+# Observation builders, reward terms and design/runtime factories were written
+# against scalar ``get_<x>(idx)`` / ``set_<x>(idx, v)`` accessors. The element
+# shims keep that surface but route every field through its path in
+# ``openswmm.engine.catalog``; each path is checked when this module loads, so
+# an engine that renames a field fails at import rather than mid-episode.
 
 
-class _NodesCompat:
-    """Scalar node accessor over the v6 element-object ``Nodes`` collection."""
+def _get(path: str):
+    """Scalar getter for catalog field C{path} on element C{idx}."""
+    entry = _catalog.lookup(path)
+    target, name = entry["target"], entry["name"]
 
-    __slots__ = ("_col",)
+    def get(self, idx: int):
+        return getattr(_catalog.resolve(self._solver, target, idx), name)
 
-    def __init__(self, col: Nodes) -> None:
+    get.__doc__ = f"C{{{path}}} of element C{{idx}} ({entry.get('units', 'no units')})."
+    return get
+
+
+def _set(path: str):
+    """Scalar setter for catalog field C{path} on element C{idx}."""
+    entry = _catalog.lookup(path)
+    target, name = entry["target"], entry["name"]
+
+    def set_(self, idx: int, value) -> None:
+        setattr(_catalog.resolve(self._solver, target, idx), name, value)
+
+    set_.__doc__ = f"Set C{{{path}}} on element C{{idx}}."
+    return set_
+
+
+class _ElementCompat:
+    """Scalar accessors over one element collection."""
+
+    __slots__ = ("_col", "_solver")
+
+    def __init__(self, solver, col) -> None:
+        self._solver = solver
         self._col = col
 
     def count(self) -> int:
         return len(self._col.ids)
 
-    def get_index(self, node_id: str) -> int:
-        return self._col.get_index(node_id)
+    def get_index(self, element_id: str) -> int:
+        return self._col.get_index(element_id)
 
-    def get_depth(self, idx: int) -> float:
-        return self._col[idx].depth
 
-    def get_lateral_inflow(self, idx: int) -> float:
-        return self._col[idx].lateral_inflow
+class _NodesCompat(_ElementCompat):
+    """Scalar node accessor (catalog paths C{node.*})."""
 
-    def set_lateral_inflow(self, idx: int, value: float) -> None:
-        # Controllable externally-applied inflow (swmm_node_set_lateral_inflow);
-        # value is in project flow units.
-        self._col[idx].lateral_inflow = value
+    __slots__ = ()
+
+    get_depth = _get("node.depth")
+    # Controllable externally-applied inflow, project flow units.
+    get_lateral_inflow = _get("node.lateral_inflow")
+    set_lateral_inflow = _set("node.lateral_inflow")
+    get_max_depth = _get("node.max_depth")
+    set_max_depth = _set("node.max_depth")
+    # Index of the node's depth->area storage curve, or -1 when the shape is
+    # not TABULAR; set only on STORAGE + TABULAR nodes.
+    get_storage_curve = _get("node.storage.curve")
+    set_storage_curve = _set("node.storage.curve")
+    _functional = _get("node.storage.functional")
+    _set_functional = _set("node.storage.functional")
+    _shape = _get("node.storage.shape")
 
     def set_head_boundary(self, idx: int, value: float) -> None:
         # Fixed head boundary (swmm_node_set_head_boundary); project length units.
         self._col[idx].set_head_boundary(value)
 
-    def get_max_depth(self, idx: int) -> float:
-        return self._col[idx].max_depth
-
-    def set_max_depth(self, idx: int, value: float) -> None:
-        self._col[idx].max_depth = value
-
     def get_storage_functional(self, idx: int) -> tuple[float, float, float]:
         # (a, b, c) of the FUNCTIONAL storage relation Area = a*Depth^b + c.
         # Only valid on STORAGE nodes whose shape is FUNCTIONAL.
-        return tuple(self._col[idx].storage.functional)
+        return tuple(self._functional(idx))
 
     def set_storage_functional(self, idx: int, a: float, b: float, c: float) -> None:
-        # swmm_node_set_storage_functional; STORAGE + FUNCTIONAL shape only.
-        self._col[idx].storage.functional = (a, b, c)
+        self._set_functional(idx, (a, b, c))
 
     def get_storage_shape(self, idx: int) -> str:
-        # StorageShape member name, e.g. "FUNCTIONAL" / "TABULAR" /
-        # "CYLINDRICAL". Returned as the name so consumers never need the
-        # engine enum (which is only importable here). Raises on a
-        # non-storage node.
-        return str(self._col[idx].storage.shape.name)
-
-    def get_storage_curve(self, idx: int) -> int:
-        # Index of the node's depth->area storage curve, or -1 when the
-        # node's shape is not TABULAR.
-        return int(self._col[idx].storage.curve)
-
-    def set_storage_curve(self, idx: int, curve_idx: int) -> None:
-        # swmm_node_set_storage_curve; STORAGE + TABULAR shape only.
-        self._col[idx].storage.curve = int(curve_idx)
+        # StorageShape member name ("FUNCTIONAL", "TABULAR", ...) so consumers
+        # never need the engine enum. Raises on a non-storage node.
+        return str(self._shape(idx).name)
 
     def get_quality(self, idx: int, pollutant: int | str) -> float:
-        # Pollutant concentration at the node, in the pollutant's
-        # concentration units (swmm_node_get_quality).
+        # Pollutant concentration at the node, in the pollutant's units.
         return self._col[idx].quality(pollutant)
 
     def qualities(self, pollutant: int | str):
@@ -353,44 +389,21 @@ class _NodesCompat:
         return self._col.qualities(pollutant)
 
 
-class _LinksCompat:
-    """Scalar link accessor over the v6 element-object ``Links`` collection."""
+class _LinksCompat(_ElementCompat):
+    """Scalar link accessor (catalog paths C{link.*})."""
 
-    __slots__ = ("_col",)
+    __slots__ = ()
 
-    def __init__(self, col: Links) -> None:
-        self._col = col
-
-    def count(self) -> int:
-        return len(self._col.ids)
-
-    def get_index(self, link_id: str) -> int:
-        return self._col.get_index(link_id)
-
-    def get_flow(self, idx: int) -> float:
-        return self._col[idx].flow
-
-    def get_depth(self, idx: int) -> float:
-        return self._col[idx].depth
-
-    def get_control_setting(self, idx: int) -> float:
-        return self._col[idx].control_setting
-
-    def get_target_setting(self, idx: int) -> float:
-        return self._col[idx].target_setting
-
-    def set_target_setting(self, idx: int, value: float) -> None:
-        # Persistent runtime-control override: the engine moves the link's
-        # control_setting toward target_setting each routing step and holds it
-        # there. (control_setting set via Controls.set_link_setting is recomputed
-        # from the target every step, so it does not stick without a rule.)
-        self._col[idx].target_setting = value
-
-    def set_roughness(self, idx: int, value: float) -> None:
-        self._col[idx].roughness = value
-
-    def set_length(self, idx: int, value: float) -> None:
-        self._col[idx].length = value
+    get_flow = _get("link.flow")
+    get_depth = _get("link.depth")
+    get_control_setting = _get("link.control_setting")
+    # Persistent runtime-control override: the engine moves control_setting
+    # toward target_setting each routing step and holds it there
+    # (control_setting itself is recomputed from the target every step).
+    get_target_setting = _get("link.target_setting")
+    set_target_setting = _set("link.target_setting")
+    set_roughness = _set("link.roughness")
+    set_length = _set("link.length")
 
     def get_xsect(self, idx: int) -> tuple:
         # (shape, geom1, geom2, geom3, geom4); shape is an XSectShape enum,
@@ -442,29 +455,26 @@ class _LinksCompat:
     # documents the constraint in its own docstring and warns at bind time;
     # see that term before adding another consumer.
 
+    # Instantaneous volume above the crown in the slot, project volume units;
+    # always a subset of the link volume.
+    _slot_volume = _get("link.slot_volume")
+    # Run-cumulative max of slot_volume/volume, in [0, 1].
+    _peak_slot_share = _get("link.stats.peak_slot_share")
+    # Run-level (int slot_volume dt) / (int volume dt), in [0, 1]; not an
+    # average of instantaneous ratios.
+    _slot_share = _get("link.stats.slot_share")
+
     def slot_volume(self, idx: int) -> float:
-        # swmm_link_get_slot_volume — instantaneous volume standing above the
-        # conduit crown in the Preissmann slot, project volume units. Always a
-        # subset of get_volume(idx). FV routing only; reads 0.0 under dynamic
-        # wave AND whenever the conduit is below its crown (see block comment).
-        return float(self._col[idx].slot_volume)
+        return float(self._slot_volume(idx))
 
     def peak_slot_share(self, idx: int) -> float:
-        # swmm_link_get_stat_peak_slot_share — run-cumulative max of
-        # slot_volume/volume, dimensionless in [0, 1]. FV routing only; reads
-        # 0.0 under dynamic wave (see block comment).
-        return float(self._col[idx].stats.peak_slot_share)
+        return float(self._peak_slot_share(idx))
 
     def slot_share(self, idx: int) -> float:
-        # swmm_link_get_stat_slot_share — run-level ratio of time integrals
-        # (int slot_volume dt) / (int volume dt), dimensionless in [0, 1].
-        # NOT an average of instantaneous ratios. FV routing only; reads 0.0
-        # under dynamic wave (see block comment).
-        return float(self._col[idx].stats.slot_share)
+        return float(self._slot_share(idx))
 
     def get_quality(self, idx: int, pollutant: int | str) -> float:
-        # Pollutant concentration in the link, in the pollutant's
-        # concentration units (swmm_link_get_quality).
+        # Pollutant concentration in the link, in the pollutant's units.
         return self._col[idx].quality(pollutant)
 
     def qualities(self, pollutant: int | str):
@@ -500,21 +510,17 @@ class _ControlsCompat:
         self._col.set_link_status(idx, value)
 
 
-class _SubcatchmentsCompat:
-    """Scalar subcatchment accessor over the v6 ``Subcatchments`` collection."""
+class _SubcatchmentsCompat(_ElementCompat):
+    """Scalar subcatchment accessor (catalog paths C{subcatchment.*})."""
 
-    __slots__ = ("_col",)
+    __slots__ = ()
 
-    def __init__(self, col: Subcatchments) -> None:
-        self._col = col
-
-    def get_index(self, sub_id: str) -> int:
-        return self._col.get_index(sub_id)
+    # (surf_elev, a1, b1, a2, b2, a3, tw, hstar) in [GROUNDWATER] token
+    # order; requires an aquifer to be assigned.
+    _gw_params = _get("subcatchment.gw_params")
 
     def get_gw_params(self, idx: int) -> tuple:
-        # (surf_elev, a1, b1, a2, b2, a3, tw, hstar) — [GROUNDWATER] token
-        # order; requires an aquifer to be assigned.
-        return tuple(self._col[idx].gw_params)
+        return tuple(self._gw_params(idx))
 
     def set_gw_params(
         self,
@@ -530,7 +536,6 @@ class _SubcatchmentsCompat:
     ) -> None:
         # swmm_subcatch_set_gw_params; requires an aquifer to be assigned.
         self._col[idx].set_gw_params(surf_elev, a1, b1, a2, b2, a3, tw, hstar)
-
 
 
 class _InfrastructureCompat:
@@ -637,8 +642,8 @@ class _InflowsCompat:
         return int(self._inflows.rdii_count)
 
 
-class _PollutantsCompat:
-    """Pollutant catalogue accessor over the v6 ``Pollutants`` collection.
+class _PollutantsCompat(_ElementCompat):
+    """Pollutant catalogue accessor.
 
     Read-only identity surface: the observation collectors and the
     L{openswmm_gymnasium.rewards.terms.TSSLoad} term resolve a symbolic
@@ -646,13 +651,7 @@ class _PollutantsCompat:
     concentrations through the node / link collections.
     """
 
-    __slots__ = ("_col",)
-
-    def __init__(self, col) -> None:
-        self._col = col
-
-    def get_index(self, pollutant_id: str) -> int:
-        return self._col.get_index(pollutant_id)
+    __slots__ = ()
 
 
 class _TablesCompat:
@@ -999,8 +998,8 @@ class _Surface2DCompat:
     """Read-only 2D surface accessor over ``Solver.surface2d``.
 
     Surfaces the small slice of :class:`openswmm.engine.Surface2D` the
-    observation pipeline needs: activity flag, vertex count, and the
-    bulk per-vertex render-depth read (the signed ``eta_v - z_v`` field
+    observation pipeline needs: activity flag, vertex and cell counts, and
+    the bulk per-vertex render-depth read (the signed ``eta_v - z_v`` field
     used for inundation observation).
     """
 
@@ -1016,6 +1015,10 @@ class _Surface2DCompat:
     @property
     def n_vertices(self) -> int:
         return int(self._surf.n_vertices)
+
+    @property
+    def n_cells(self) -> int:
+        return int(self._surf.n_cells)
 
     def vertex_render_depths(self):
         # Bulk ndarray of shape (n_vertices,); GIL released engine-side.
@@ -1586,6 +1589,16 @@ class SolverAdapter:
         target, _, name = bulk.rpartition(".")
         return getattr(_catalog.resolve(self._solver, target, None), name)
 
+    def call(self, path: str, *args: Any, **kwargs: Any) -> Any:
+        """Call catalog method C{path} on its service (e.g. C{"surface2d.get_depths"}).
+
+        @rtype: Any
+        """
+        entry = _catalog.lookup(path)
+        return getattr(_catalog.resolve(self._solver, entry["target"], None), entry["name"])(
+            *args, **kwargs
+        )
+
     def write(self, path: str, idx: int, value: Any) -> None:
         """Set field C{path} on element C{idx} (the field must be writable)."""
         entry = _catalog.lookup(path)
@@ -1600,7 +1613,7 @@ class SolverAdapter:
         @rtype: L{_NodesCompat}
         """
         if self._nodes is None:
-            self._nodes = _NodesCompat(Nodes(self._solver))
+            self._nodes = _NodesCompat(self._solver, Nodes(self._solver))
         return self._nodes
 
     @property
@@ -1610,7 +1623,7 @@ class SolverAdapter:
         @rtype: L{_LinksCompat}
         """
         if self._links is None:
-            self._links = _LinksCompat(Links(self._solver))
+            self._links = _LinksCompat(self._solver, Links(self._solver))
         return self._links
 
     @property
@@ -1630,7 +1643,7 @@ class SolverAdapter:
         @rtype: L{_SubcatchmentsCompat}
         """
         if self._subcatchments is None:
-            self._subcatchments = _SubcatchmentsCompat(Subcatchments(self._solver))
+            self._subcatchments = _SubcatchmentsCompat(self._solver, Subcatchments(self._solver))
         return self._subcatchments
 
 
@@ -1661,7 +1674,7 @@ class SolverAdapter:
         @rtype: L{_PollutantsCompat}
         """
         if self._pollutants is None:
-            self._pollutants = _PollutantsCompat(_engine.Pollutants(self._solver))
+            self._pollutants = _PollutantsCompat(self._solver, _engine.Pollutants(self._solver))
         return self._pollutants
 
     @property

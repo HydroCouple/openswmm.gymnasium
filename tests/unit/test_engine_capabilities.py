@@ -33,125 +33,131 @@ from types import SimpleNamespace
 
 from openswmm_gymnasium._engine import solver_adapter
 from openswmm_gymnasium._engine.solver_adapter import (
-    _REQUIRED_CLASS_ATTRS,
-    _REQUIRED_MODULE_ATTRS,
+    CORE_REQUIREMENTS,
     EngineCapabilityError,
     SolverAdapter,
     _missing_engine_capabilities,
     require_engine_capabilities,
+    require_for,
 )
+from openswmm_gymnasium.observations import ObservationBuilder
+from openswmm_gymnasium.rewards import FloodingVolume, TSSLoad
+from openswmm_gymnasium.spaces import LinkRoughness, StorageVolume
 
 
 def _complete_engine() -> SimpleNamespace:
-    """A namespace satisfying every probed requirement."""
-    classes: dict[str, type] = {}
-    for cls_name, attr in _REQUIRED_CLASS_ATTRS:
-        cls = classes.setdefault(cls_name, type(cls_name, (), {}))
-        setattr(cls, attr, None)
-    module = SimpleNamespace(__version__="6.0.0.test", **classes)
-    for name in _REQUIRED_MODULE_ATTRS:
-        setattr(module, name, object())
-    return module
+    """A stand-in engine namespace with every core requirement."""
+    solver = type("Solver", (), {name: None for name in CORE_REQUIREMENTS})
+    return SimpleNamespace(__version__="6.0.0.test", Solver=solver)
 
 
-class TestProbe(unittest.TestCase):
+def _real_engine_without(*class_names: str) -> SimpleNamespace:
+    """Every class of the installed engine, minus C{class_names} (a partial build)."""
+    import importlib
+    import pkgutil
+
+    import openswmm.engine as engine
+
+    names: dict[str, object] = {"__version__": "6.0.0.partial"}
+    for info in pkgutil.iter_modules(engine.__path__):
+        if info.name.startswith("_"):
+            module = importlib.import_module(f"openswmm.engine.{info.name}")
+            names.update({k: v for k, v in vars(module).items() if isinstance(v, type)})
+    for name in class_names:
+        names.pop(name, None)
+    return SimpleNamespace(**names)
+
+
+class TestCoreProbe(unittest.TestCase):
     def test_complete_engine_reports_nothing_missing(self):
         self.assertEqual(_missing_engine_capabilities(_complete_engine()), [])
-
-    def test_complete_engine_passes(self):
         require_engine_capabilities(_complete_engine())
 
-    def test_missing_module_symbol_is_named(self):
-        module = _complete_engine()
-        delattr(module, "XSectionGeometry")
-        self.assertEqual(
-            _missing_engine_capabilities(module), ["openswmm.engine.XSectionGeometry"]
-        )
-
-    def test_missing_class_attribute_is_named(self):
+    def test_missing_core_attribute_is_named(self):
         module = _complete_engine()
         delattr(module.Solver, "set_lenient_open")
         self.assertEqual(
             _missing_engine_capabilities(module),
-            ["openswmm.engine.Solver.set_lenient_open"],
+            ["set_lenient_open (openswmm.engine.Solver.set_lenient_open)"],
         )
 
-    def test_missing_class_entirely_is_named(self):
-        module = _complete_engine()
-        delattr(module, "Nodes")
-        self.assertIn("openswmm.engine.Nodes", _missing_engine_capabilities(module))
-
-    def test_error_names_every_missing_symbol(self):
-        module = _complete_engine()
-        delattr(module, "Statistics")
-        delattr(module, "Pollutants")
+    def test_error_names_every_missing_symbol_and_the_remedy(self):
         with self.assertRaises(EngineCapabilityError) as ctx:
-            require_engine_capabilities(module)
+            require_engine_capabilities(_complete_engine(), ("tables", "statistics"))
         message = str(ctx.exception)
-        self.assertIn("openswmm.engine.Statistics", message)
-        self.assertIn("openswmm.engine.Pollutants", message)
+        self.assertIn("tables (openswmm.engine.Tables)", message)
+        self.assertIn("statistics (openswmm.engine.Statistics)", message)
+        self.assertIn("6.0.0.test", message)
+        self.assertIn("Upgrade", message)
 
-    def test_error_reports_the_installed_version(self):
-        module = _complete_engine()
-        delattr(module, "Tables")
+    def test_optional_surfaces_are_not_core(self):
+        """A build without 2D, heat, reactions ... still passes the core probe."""
+        for path in (
+            "surface2d",
+            "heat",
+            "water_age",
+            "reactions",
+            "tables",
+            "statistics",
+            "pollutants",
+            "xsect",
+        ):
+            with self.subTest(path=path):
+                self.assertNotIn(path, CORE_REQUIREMENTS)
+        require_engine_capabilities(_complete_engine())
+
+
+class TestRequireFor(unittest.TestCase):
+    """G2: an env checks exactly what its configured components declare."""
+
+    def test_components_declare_the_surfaces_they_use(self):
+        self.assertEqual(FloodingVolume.requires, ("statistics",))
+        self.assertIn("pollutants", TSSLoad.requires)
+        self.assertIn("tables", StorageVolume.requires)
+        builder = (
+            ObservationBuilder()
+            .add_field("link.stats.max_flow", ["C1"])
+            .add_pollutant_concentration(["J1"], "TSS")
+        )
+        self.assertIn("link.stats.max_flow", builder.requires())
+        self.assertIn("pollutants", builder.requires())
+
+    def test_a_partial_build_fails_only_the_components_that_need_it(self):
+        engine = _real_engine_without("Tables")
+        hydraulic = (
+            ObservationBuilder().add_node_depths(["J1"]),
+            FloodingVolume(),
+            LinkRoughness(["C1"], 0.01, 0.02),
+        )
+        require_for(*hydraulic, module=engine)
+        storage = StorageVolume(["SU1"], 0.5, 2.0)
         with self.assertRaises(EngineCapabilityError) as ctx:
-            require_engine_capabilities(module)
-        self.assertIn("6.0.0.test", str(ctx.exception))
+            require_for(*hydraulic, storage, module=engine)
+        self.assertIn("tables (openswmm.engine.Tables)", str(ctx.exception))
 
-    def test_error_is_actionable(self):
-        module = _complete_engine()
-        delattr(module, "Tables")
-        with self.assertRaises(EngineCapabilityError) as ctx:
-            require_engine_capabilities(module)
-        self.assertIn("Upgrade", str(ctx.exception))
+    def test_every_declared_path_is_in_the_catalog(self):
+        import inspect
 
-    def test_optional_2d_surface_is_not_probed(self):
-        """A build with OPENSWMM_BUILD_2D=OFF must still pass the probe."""
-        module = _complete_engine()
-        self.assertFalse(hasattr(module, "Surface2D"))
-        require_engine_capabilities(module)
+        from openswmm.engine import catalog
 
+        from openswmm_gymnasium import rewards, spaces
+        from openswmm_gymnasium.control import metrics
 
-class TestOptionalSurfacesAreNotProbed(unittest.TestCase):
-    """The heat / water-age / reaction modules stay out of the hard probe.
+        declared = {
+            (cls.__name__, path)
+            for module in (rewards, spaces, metrics)
+            for _, cls in inspect.getmembers(module, inspect.isclass)
+            for path in getattr(cls, "requires", ())
+            if isinstance(getattr(cls, "requires", ()), tuple)
+        }
+        self.assertTrue(declared)
+        for owner, path in sorted(declared):
+            with self.subTest(owner=owner, path=path):
+                if path not in catalog.targets():
+                    catalog.lookup(path)  # raises KeyError naming the path
 
-    Listing an optional module in C{_REQUIRED_MODULE_ATTRS} would make a
-    partial build unusable for B{every} env rather than only for the envs
-    that actually touch it — a 1D hydraulic RTC task has no business
-    failing because the engine was compiled without heat transport. Each
-    gets an accessor-level probe on L{SolverAdapter} instead, so the
-    failure lands at the moment something reaches for the missing module,
-    with the remedy named.
-    """
-
-    #: Optional engine modules reached through a guarded L{SolverAdapter}
-    #: accessor rather than the construction-time probe.
-    OPTIONAL_MODULES = ("Surface2D", "Heat", "WaterAge", "Reactions")
-
-    def test_probe_passes_without_any_optional_module(self):
-        module = _complete_engine()
-        for name in self.OPTIONAL_MODULES:
-            self.assertFalse(hasattr(module, name), name)
-        require_engine_capabilities(module)
-        self.assertEqual(_missing_engine_capabilities(module), [])
-
-    def test_no_optional_module_is_listed_as_required(self):
-        for name in self.OPTIONAL_MODULES:
-            with self.subTest(module=name):
-                self.assertNotIn(name, _REQUIRED_MODULE_ATTRS)
-
-    def test_no_optional_module_is_listed_as_a_required_class(self):
-        required_classes = {cls_name for cls_name, _ in _REQUIRED_CLASS_ATTRS}
-        for name in self.OPTIONAL_MODULES:
-            with self.subTest(module=name):
-                self.assertNotIn(name, required_classes)
-
-    def test_probe_still_passes_when_optional_modules_are_present(self):
-        """Present-but-unprobed must be just as acceptable as absent."""
-        module = _complete_engine()
-        for name in self.OPTIONAL_MODULES:
-            setattr(module, name, object())
-        require_engine_capabilities(module)
+    def test_components_without_requirements_pass(self):
+        require_for(object(), module=_complete_engine())
 
 
 class TestOptionalAccessorProbes(unittest.TestCase):
@@ -242,9 +248,7 @@ class TestOptionalAccessorProbes(unittest.TestCase):
         """There is no [OPTIONS] flag for reactions, so an empty
         coefficient table must not be treated as a misconfiguration."""
         module = _complete_engine()
-        module.Reactions = lambda solver: SimpleNamespace(
-            species=[], coefficients=[], terms=[]
-        )
+        module.Reactions = lambda solver: SimpleNamespace(species=[], coefficients=[], terms=[])
         self._patch_engine(module)
         self.assertEqual(self._adapter_over(None).reactions.coefficient_names(), [])
 

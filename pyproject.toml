@@ -57,10 +57,12 @@ dependencies = [
 mo       = ["mo-gymnasium>=1.0"]            # multi-objective extension
 platypus = ["platypus-opt>=1.2"]            # sole supported MOO adapter (plan §5.4)
 viz      = ["plotly>=5.18"]                 # sole supported plot backend (plan §5.5)
+spec     = ["pydantic>=2"]                  # openswmm_gymnasium.spec (JSON env configs)
 dev = [
     "pytest>=7.0",
     "pytest-cov",
     "ruff==0.15.14",
+    "pydantic>=2",
 ]
 docs = [
     "sphinx>=7.0",

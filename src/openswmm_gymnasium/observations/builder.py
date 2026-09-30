@@ -45,11 +45,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 from gymnasium import spaces
+from openswmm.engine import _enums as _engine_enums
+from openswmm.engine import catalog as _catalog
 
-from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry
+from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry, unit_label
 
 # =============================================================================
 # Internal collector base + helpers
@@ -74,6 +77,8 @@ class _ScalarReadCollector:
     """
 
     _kind_label: str = "_ScalarReadCollector"
+
+    requires: tuple[str, ...] = ()
 
     def __init__(self, ids: Sequence[str]) -> None:
         self._ids: list[str] = _require_ids(self._kind_label, ids)
@@ -141,7 +146,12 @@ class _FieldCollector(_ScalarReadCollector):
         super().__init__(ids)
         field_entry(path)  # fail at construction, naming the path, if it is unknown
         self._path = path
+        self.requires = (path,)
         self._kind = element_kind(path)
+
+    def units(self, unit_system: str | None, flow_units: str | None) -> list[str]:
+        label = unit_label(field_entry(self._path).get("units"), unit_system, flow_units)
+        return [label or ""] * len(self._ids)
 
     def _resolve_idxs(self, adapter):
         return [adapter.index(self._kind, i) for i in self._ids]
@@ -170,6 +180,9 @@ class _PollutantConcentrationCollector(_ScalarReadCollector):
     so the per-step read never does a string lookup.
     """
 
+    def units(self, unit_system: str | None, flow_units: str | None) -> list[str]:
+        return [f"{self._pollutant} concentration units"] * len(self._ids)
+
     def __init__(self, ids: Sequence[str], pollutant: str) -> None:
         super().__init__(ids)
         if not pollutant:
@@ -187,6 +200,8 @@ class _NodeQualityCollector(_PollutantConcentrationCollector):
 
     _kind_label = "add_pollutant_concentration"
 
+    requires = ("pollutants", "nodes.qualities", "node.quality")
+
     def _resolve_idxs(self, adapter):
         return [adapter.nodes.get_index(i) for i in self._ids]
 
@@ -201,6 +216,8 @@ class _LinkQualityCollector(_PollutantConcentrationCollector):
     """Pollutant concentration in each link."""
 
     _kind_label = "add_link_pollutant_concentration"
+
+    requires = ("pollutants", "links.qualities", "link.quality")
 
     def _resolve_idxs(self, adapter):
         return [adapter.links.get_index(i) for i in self._ids]
@@ -228,6 +245,7 @@ class _Surface2DVertexDepthCollector:
     """
 
     _kind_label = "add_2d_vertex_depths"
+    requires = ("surface2d",)
 
     def __init__(self, vertex_idxs: Sequence[int]) -> None:
         if not vertex_idxs:
@@ -238,6 +256,9 @@ class _Surface2DVertexDepthCollector:
     @property
     def size(self) -> int:
         return len(self._vertex_idxs)
+
+    def units(self, unit_system: str | None, flow_units: str | None) -> list[str]:
+        return ["m"] * len(self._vertex_idxs)  # the engine's 2D state is SI
 
     def bind(self, adapter: SolverAdapter) -> None:
         # adapter.surface2d raises with a clear message when the engine
@@ -266,6 +287,91 @@ class _Surface2DVertexDepthCollector:
 _CLOCK_FEATURES = ("hour_sin", "hour_cos", "elapsed_frac")
 
 
+class _CellFieldCollector:
+    """A per-cell quantity of a 2D service, read at chosen mesh cells.
+
+    C{path} is a catalog method that either returns an array with one value
+    per cell (C{"surface2d.get_depths"}, C{"surface2d.infiltration.rate"},
+    C{"surface2d.groundwater.cells"} with C{variable="HG"},
+    C{"surface2d.quality.buildup"} with C{species="TSS"}) -- read once per
+    step and gathered -- or takes the cell index first and returns a float
+    (C{"surface2d.get_rainfall"}) and is called per cell. Vertex quantities
+    are not cells; see L{ObservationBuilder.add_2d_vertex_depths}.
+    """
+
+    def __init__(self, path: str, cells: Sequence[int], args: dict | None = None) -> None:
+        if not cells:
+            raise ValueError(f"add_cell_field({path!r}) requires at least one cell index")
+        try:
+            entry = _catalog.lookup(path)
+        except KeyError as exc:
+            raise ValueError(str(exc.args[0])) from None
+        required = [p["name"] for p in entry.get("params", []) if p["required"]]
+        returns = entry.get("returns", "")
+        self._per_cell = required[:1] in (["idx"], ["cell"]) and returns == "float"
+        bulk = "NDArray" in returns and required[:1] not in (["idx"], ["cell"])
+        if (
+            entry["form"] != "method"
+            or not path.startswith("surface2d")
+            or "vertex" in path
+            or not (self._per_cell or bulk)
+        ):
+            raise ValueError(f"{path!r} is not a per-cell method of a 2D service")
+        missing = [n for n in required[self._per_cell :] if n not in (args or {})]
+        if missing:
+            raise ValueError(f"{path!r} needs argument(s) {missing}")
+        self._path = path
+        self._entry = entry
+        self._args = {k: _coerce_enum(entry, k, v) for k, v in (args or {}).items()}
+        self._cells = [int(c) for c in cells]
+        self._idx_arr = np.asarray(self._cells, dtype=np.intp)
+        self.requires = ("surface2d", path)
+
+    @property
+    def size(self) -> int:
+        return len(self._cells)
+
+    def units(self, unit_system: str | None, flow_units: str | None) -> list[str]:
+        label = unit_label(self._entry.get("units"), unit_system, flow_units)
+        return [label or ""] * len(self._cells)
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        # adapter.surface2d raises with the remedy named when the engine has no
+        # 2D module or the model's 2D surface is inactive.
+        n = adapter.surface2d.n_cells
+        bad = [c for c in self._cells if not 0 <= c < n]
+        if bad:
+            raise ValueError(f"add_cell_field({self._path!r}): cells out of range [0, {n}): {bad}")
+        if not self._per_cell:
+            # Also surfaces an unconfigured service (no groundwater, no quality).
+            size = len(adapter.call(self._path, **self._args))
+            if size != n:
+                raise ValueError(
+                    f"add_cell_field({self._path!r}) returns {size} values, not one per cell ({n})"
+                )
+
+    def collect(self, adapter: SolverAdapter) -> np.ndarray:
+        if self._per_cell:
+            values = [adapter.call(self._path, c, **self._args) for c in self._cells]
+            return np.asarray(values, dtype=np.float32)
+        arr = np.asarray(adapter.call(self._path, **self._args), dtype=np.float64)
+        return arr[self._idx_arr].astype(np.float32)
+
+
+def _coerce_enum(entry: dict, name: str, value: Any) -> Any:
+    """Pass an enum argument by member name (C{variable="HG"}) as the engine enum."""
+    param = next((p for p in entry.get("params", []) if p["name"] == name), None)
+    if param and isinstance(value, str) and param["type"] in _catalog.load()["enums"]:
+        enum = getattr(_engine_enums, param["type"])
+        try:
+            return enum[value.upper()]
+        except KeyError:
+            raise ValueError(
+                f"{name}={value!r} is not a {param['type']}; one of {[m.name for m in enum]}"
+            ) from None
+    return value
+
+
 class _ClockCollector:
     """Time-of-day + episode-progress features.
 
@@ -284,6 +390,8 @@ class _ClockCollector:
     @type _features: tuple[str, ...]
     """
 
+    requires: tuple[str, ...] = ()
+
     def __init__(self, features: Sequence[str] | None = None) -> None:
         if features is None:
             features = _CLOCK_FEATURES
@@ -298,6 +406,9 @@ class _ClockCollector:
     @property
     def size(self) -> int:
         return len(self._features)
+
+    def units(self, unit_system: str | None, flow_units: str | None) -> list[str]:
+        return ["dimensionless"] * len(self._features)
 
     def bind(self, adapter: SolverAdapter) -> None:
         # No symbolic IDs to resolve; we just stash the adapter for
@@ -584,6 +695,25 @@ class ObservationBuilder:
         self._collectors.append(_Surface2DVertexDepthCollector(vertex_idxs))
         return self
 
+    def add_cell_field(self, path: str, cells: Sequence[int], **args: Any) -> ObservationBuilder:
+        """Append a per-cell 2D quantity at the given mesh cells.
+
+        C{path} is a catalog method of a 2D service returning one value per
+        cell, or taking the cell index: C{"surface2d.get_depths"},
+        C{"surface2d.get_rainfall"}, C{"surface2d.infiltration.rate"},
+        C{"surface2d.groundwater.cells"} (C{variable="HG"} for heads),
+        C{"surface2d.quality.buildup"} (C{species="TSS"}). Extra keyword
+        arguments go to that method; enum arguments may be given by name.
+
+        @param path: Catalog method path.
+        @param cells: Mesh cell indices.
+        @raise ValueError: Unknown path, a method that is not per-cell, or a
+            missing argument.
+        @rtype: L{ObservationBuilder}
+        """
+        self._collectors.append(_CellFieldCollector(path, cells, args))
+        return self
+
     # ----- Time features -------------------------------------------------
 
     def add_clock(self, features: Sequence[str] | None = None) -> ObservationBuilder:
@@ -610,6 +740,23 @@ class ObservationBuilder:
             raise ValueError("ObservationBuilder is empty; add at least one collector")
         size = sum(c.size for c in self._collectors)
         return spaces.Box(low=-np.inf, high=np.inf, shape=(size,), dtype=np.float32)
+
+    def requires(self) -> tuple[str, ...]:
+        """Catalog paths the configured collectors need from the engine.
+
+        @rtype: tuple[str, ...]
+        """
+        return tuple(sorted({p for c in self._collectors for p in c.requires}))
+
+    def units(self, unit_system: str | None, flow_units: str | None = None) -> list[str]:
+        """Unit label of every observation component, in L{space} order.
+
+        Labels come from the engine catalog's unit kinds in the model's unit
+        system (C{"US"}/C{"SI"}) and flow units; values stay in those units.
+
+        @rtype: list[str]
+        """
+        return [u for c in self._collectors for u in c.units(unit_system, flow_units)]
 
     def bind(self, adapter: SolverAdapter) -> None:
         """Resolve symbolic IDs in every collector.

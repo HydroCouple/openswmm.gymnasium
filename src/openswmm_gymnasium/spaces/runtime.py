@@ -82,6 +82,9 @@ class OrificeSetting:
     @type _link_idxs: list[int] or C{None}
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.target_setting",)
+
     def __init__(
         self,
         link_ids: Sequence[str],
@@ -162,6 +165,9 @@ class NodeLateralInflow:
     @ivar _node_ids: Symbolic node IDs supplied at construction.
     @ivar _max_inflow: Upper bound of each component's action range.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("node.lateral_inflow",)
 
     def __init__(
         self,
@@ -275,6 +281,7 @@ class FieldSetpoint:
         if not low < high:
             raise ValueError("FieldSetpoint requires low < high")
         self._path = path
+        self.requires = (path,)
         self._kind = element_kind(path)
         self._ids = list(ids)
         self._low, self._high = float(low), float(high)
@@ -362,6 +369,9 @@ class HeatSourceTemperatureSetpoint:
     @ivar _name: Action-space key for this factory.
     @type _name: str
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("heat",)
 
     def __init__(
         self,

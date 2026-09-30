@@ -46,7 +46,7 @@ import numpy as np
 from gymnasium import spaces
 from openswmm.engine import EngineState
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, require_for
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, RewardTerm
 from openswmm_gymnasium.spaces.design import DesignActionFactory
@@ -140,6 +140,13 @@ class SwmmJointCIPRTCEnv(gym.Env):
             }
         )
         self.observation_space = self._observation_builder.space()
+        # A partial engine build fails here, naming what this configuration needs.
+        require_for(
+            self._observation_builder,
+            *self._design_factories,
+            *self._runtime_factories,
+            *self._reward_terms,
+        )
 
         # ---- Per-episode state ---------------------------------------
         self._adapter: SolverAdapter | None = None

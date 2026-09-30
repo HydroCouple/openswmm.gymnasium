@@ -21,7 +21,8 @@ coupled 1D/2D ``tests/data/minimal_2d.inp`` fixture (two triangles,
 four vertices, centre-vertex coupling to J1).
 
 Covers: ``ObservationBuilder.add_2d_vertex_depths`` (space size,
-bind-time validation, collect shape/dtype), ``SolverAdapter.surface2d``
+bind-time validation, collect shape/dtype), ``add_cell_field`` (bulk and
+per-cell reads against the engine, units, refusals), ``SolverAdapter.surface2d``
 gating (clear error on a 1D-only model), and the ``IGNORE_2D`` engine
 option applied through ``SolverAdapter.set_option`` between open and
 initialize (the per-episode 1D-only fast path).
@@ -103,6 +104,68 @@ class TestVertexDepthCollector(BaseEngine2DTest):
     def test_bind_fails_cleanly_on_1d_only_model(self) -> None:
         adapter = self.make_adapter()
         builder = self._builder([0])
+        with self.assertRaisesRegex(RuntimeError, "no active 2D surface"):
+            builder.bind(adapter)
+
+
+class TestCellFieldCollector(BaseEngine2DTest):
+    """``add_cell_field``: per-cell 2D quantities by catalog method path."""
+
+    def test_bulk_and_per_cell_reads_match_the_engine(self) -> None:
+        adapter = self.make_adapter(inp=self.minimal_2d_inp)
+        n = adapter.surface2d.n_cells
+        cells = list(range(n))
+        builder = (
+            ObservationBuilder()
+            .add_cell_field("surface2d.get_depths", cells)
+            .add_cell_field("surface2d.get_rainfall", cells)
+        )
+        builder.bind(adapter)
+        for _ in range(10):
+            adapter.step()
+        obs = builder.collect(adapter)
+        self.assertEqual(obs.shape, (2 * n,))
+        self.assertEqual(obs.dtype, np.float32)
+        per_cell = [adapter.call("surface2d.get_depth", c) for c in cells]
+        np.testing.assert_allclose(obs[:n], per_cell, rtol=1e-6)
+        rain = [adapter.call("surface2d.get_rainfall", c) for c in cells]
+        np.testing.assert_allclose(obs[n:], rain, rtol=1e-6)
+
+    def test_units_and_requires(self) -> None:
+        builder = ObservationBuilder().add_cell_field("surface2d.get_rainfall", [0, 1])
+        self.assertEqual(builder.units("SI", "CMS"), ["m/s", "m/s"])
+        self.assertIn("surface2d.get_rainfall", builder.requires())
+
+    def test_refuses_paths_that_are_not_per_cell(self) -> None:
+        for path in (
+            "surface2d.not_a_method",  # unknown
+            "node.depth",  # not a 2D service
+            "surface2d.get_vertex_render_depths",  # vertices, not cells
+            "surface2d.rainfall_weights",  # returns a tuple
+        ):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                ObservationBuilder().add_cell_field(path, [0])
+
+    def test_missing_and_bad_arguments_are_named(self) -> None:
+        with self.assertRaisesRegex(ValueError, "variable"):
+            ObservationBuilder().add_cell_field("surface2d.groundwater.cells", [0])
+        with self.assertRaisesRegex(ValueError, "NOT_A_VARIABLE"):
+            ObservationBuilder().add_cell_field(
+                "surface2d.groundwater.cells", [0], variable="NOT_A_VARIABLE"
+            )
+        with self.assertRaises(ValueError):
+            ObservationBuilder().add_cell_field("surface2d.get_depths", [])
+
+    def test_bind_rejects_out_of_range_cells(self) -> None:
+        adapter = self.make_adapter(inp=self.minimal_2d_inp)
+        n = adapter.surface2d.n_cells
+        builder = ObservationBuilder().add_cell_field("surface2d.get_depths", [0, n])
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            builder.bind(adapter)
+
+    def test_bind_fails_cleanly_on_1d_only_model(self) -> None:
+        adapter = self.make_adapter()
+        builder = ObservationBuilder().add_cell_field("surface2d.get_depths", [0])
         with self.assertRaisesRegex(RuntimeError, "no active 2D surface"):
             builder.bind(adapter)
 

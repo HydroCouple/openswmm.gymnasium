@@ -189,6 +189,9 @@ class LinkRoughness:
     @ivar name: Action-space key, default C{"link_roughness"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.roughness",)
+
     def __init__(
         self,
         link_ids: Sequence[str],
@@ -234,6 +237,9 @@ class LinkLength:
 
     @ivar name: Action-space key, default C{"link_length"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.length",)
 
     def __init__(
         self,
@@ -354,6 +360,9 @@ class LinkDiameter:
     @ivar name: Action-space key, default C{"link_diameter"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.xsect", "xsect")
+
     def __init__(
         self,
         link_ids: Sequence[str],
@@ -438,6 +447,9 @@ class NodeMaxDepth:
     @ivar name: Action-space key, default C{"node_max_depth"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("node.max_depth",)
+
     def __init__(
         self,
         node_ids: Sequence[str],
@@ -494,6 +506,9 @@ class SubcatchGWOutflowCoeff:
 
     @ivar name: Action-space key, default C{"subcatch_gw_outflow_coeff"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("subcatchment.gw_params",)
 
     def __init__(
         self,
@@ -590,6 +605,9 @@ class StorageVolume:
 
     @ivar name: Action-space key, default C{"storage_volume"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("node.storage", "tables")
 
     def __init__(
         self,
@@ -741,6 +759,9 @@ class LIDPlacement:
     @ivar name: Action-space key, default C{"lid_placement"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("infrastructure.lids",)
+
     def __init__(
         self,
         subcatch_ids: Sequence[str],
@@ -846,6 +867,9 @@ class RDIIUnitHydrograph:
 
     @ivar name: Action-space key, default C{"rdii_unit_hydrograph"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("inflows",)
 
     def __init__(
         self,
@@ -986,6 +1010,9 @@ class ReactionCoefficientValue:
 
     @ivar name: Action-space key, default C{"reaction_coefficient_value"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("reactions",)
 
     def __init__(
         self,
@@ -1129,6 +1156,9 @@ class HeatSourceTemperature:
     @ivar name: Action-space key, default C{"heat_source_temperature"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("heat",)
+
     def __init__(
         self,
         sources: Sequence[str],
@@ -1226,6 +1256,9 @@ class WaterAgeSourceAge:
 
     @ivar name: Action-space key, default C{"water_age_source_age"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("water_age",)
 
     def __init__(
         self,

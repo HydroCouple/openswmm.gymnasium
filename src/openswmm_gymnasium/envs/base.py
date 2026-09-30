@@ -44,7 +44,7 @@ import numpy as np
 from gymnasium import spaces
 from openswmm.engine import EngineState
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, require_for
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, RewardTerm
 from openswmm_gymnasium.spaces.runtime import OrificeSetting
@@ -58,10 +58,10 @@ _SECONDS_PER_DAY = 86400.0
 class SwmmRTCEnv(gym.Env):
     """Runtime-only SWMM environment for RL.
 
-    The action space is C{spaces.Dict({"design": Dict({}),
-    "runtime": Dict({...})})}, conforming to the plan §3 contract that
-    every env exposes both top-level keys. C{"design"} is empty for
-    this env class.
+    The action space is C{spaces.Dict({"runtime": Dict({...})})}.
+    Gymnasium forbids empty Dict spaces, so the empty C{"design"} half
+    of the design/runtime contract is omitted; the mask wrappers apply
+    to envs that carry both halves.
 
     The observation space is a flat L{gymnasium.spaces.Box} produced by
     the supplied L{ObservationBuilder}.
@@ -69,7 +69,7 @@ class SwmmRTCEnv(gym.Env):
     @ivar metadata: Gymnasium metadata (no rendering for now; the
         Plotly viz module §5.5 consumes recorded trajectories, not
         live envs).
-    @ivar action_space: Dict of C{"design"} + C{"runtime"}.
+    @ivar action_space: Dict with the C{"runtime"} half.
     @ivar observation_space: Flat Box.
     """
 
@@ -137,14 +137,13 @@ class SwmmRTCEnv(gym.Env):
         runtime_subspaces: dict[str, spaces.Space] = {
             f.name: f.space for f in self._runtime_factories
         }
-        # Per the plan §3 contract the action space is always
-        # ``Dict({"design", "runtime"})``; an RTC env has an empty
-        # ``"design"`` half. Both keys are always present so the
-        # mask wrappers and the design/runtime split hold uniformly.
-        self.action_space = spaces.Dict(
-            {"design": spaces.Dict({}), "runtime": spaces.Dict(runtime_subspaces)}
-        )
+        # Gymnasium forbids empty Dict spaces (``check_env`` rejects them),
+        # so we expose only the non-empty action halves. An RTC env carries
+        # just the ``"runtime"`` key; ``step`` reads it via ``action.get``.
+        self.action_space = spaces.Dict({"runtime": spaces.Dict(runtime_subspaces)})
         self.observation_space = self._observation_builder.space()
+        # A partial engine build fails here, naming what this configuration needs.
+        require_for(self._observation_builder, *self._runtime_factories, *self._reward_terms)
 
         # ---- Per-episode state ---------------------------------------
         self._adapter: SolverAdapter | None = None
@@ -238,6 +237,9 @@ class SwmmRTCEnv(gym.Env):
             "elapsed_days": self._adapter.elapsed,
             "unit_system": self._unit_system,
             "flow_units": self._adapter.flow_units,
+            "observation_units": self._observation_builder.units(
+                self._unit_system, self._adapter.flow_units
+            ),
         }
         return obs, info
 

@@ -77,6 +77,15 @@ class MarketMetricReader:
     L{read} each control step.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = (
+        "link.depth",
+        "link.xsect",
+        "xsect",
+        "node.depth",
+        "node.max_depth",
+    )
+
     def __init__(self, config: MarketConfig) -> None:
         """
         @param config: The market configuration whose agents are read.

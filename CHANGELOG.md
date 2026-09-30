@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — units, requirements, 2D cells and declarative specs
+
+- **Observation units.** `ObservationBuilder.units(unit_system, flow_units)`
+  labels every feature from the engine catalog (`"ft"`, `"CFS"`,
+  `"fraction"`, ...), and every env's `reset()` info carries them as
+  `observation_units`. Labels come from `openswmm.engine.catalog.unit_label`,
+  shared with openswmm.mcp.
+- **`ObservationBuilder.add_cell_field(path, cells, **args)`** observes a
+  per-cell 2D quantity at chosen mesh cells: any 2D-service method that returns
+  one value per cell (`"surface2d.get_depths"`, `"surface2d.infiltration.rate"`,
+  `"surface2d.groundwater.cells"` with `variable="HG"`,
+  `"surface2d.quality.buildup"` with `species="TSS"`) or takes the cell index
+  (`"surface2d.get_rainfall"`). `SolverAdapter.call(path, ...)` invokes any
+  catalog method.
+- **Per-component engine requirements.** Observation collectors, reward terms,
+  design factories and runtime actuators declare the catalog paths they need
+  (`requires`), and every env checks them with `require_for(...)` at
+  construction. A partial engine build now fails only the envs that need the
+  missing module, naming it; `CORE_REQUIREMENTS` is what every env needs.
+- **`openswmm_gymnasium.spec`** (moved from openswmm.mcp): build any env from
+  plain JSON (`EnvConfig`, `build_env`), the kind registry with parameter
+  schemas, and a thread-safe env manager. Needs the new `spec` extra
+  (`pip install openswmm.gymnasium[spec]`, adds pydantic). Errors are
+  `SpecError` with an `ErrorCode`. `ObservationSpec` gains `fields` and
+  `cell_fields`.
+
+### Changed
+
+- **Action spaces carry only their non-empty halves.** Gymnasium's `check_env`
+  rejects an empty `Dict`, so an RTC env's action space is
+  `Dict({"runtime": ...})` and a CIP env's `Dict({"design": ...})`; the joint
+  env keeps both. Code that indexed `action_space["design"]` on an RTC env must
+  use `.get`.
+- The private adapter's node, link, subcatchment and pollutant shims keep their
+  interface but read and write through catalog field paths.
+
 ### Added — any engine field as an observation or an action
 
 - **Catalog field paths.** `SolverAdapter.read`, `read_all`, `write` and
@@ -51,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remedy named rather than returning defaults, because a heat or water-age
   configuration written into a model that never routes it is a silent no-op —
   stored, never transported, nothing raised, no reward signal moving. None of
-  the three is added to `_REQUIRED_MODULE_ATTRS`: listing an optional module
+  the three is a core requirement (`CORE_REQUIREMENTS`): listing an optional module
   would make a partial build unusable for every env rather than only for the
   envs that touch it.
 - **`ReactionCoefficientValue` design factory.** Searches

@@ -161,6 +161,9 @@ class FloodingVolume:
     @ivar direction: Always C{"minimize"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("statistics",)
+
     direction = "minimize"
 
     def __init__(
@@ -259,6 +262,9 @@ class PeakOutflow:
     @ivar direction: Always C{"minimize"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("statistics",)
+
     direction = "minimize"
 
     def __init__(
@@ -334,6 +340,9 @@ class TSSLoad:
     @ivar direction: Always C{"minimize"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("pollutants", "link.flow", "link.quality")
+
     direction = "minimize"
 
     def __init__(
@@ -402,6 +411,9 @@ class ReliabilityMargin:
     @ivar direction: Always C{"maximize"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("node.depth", "node.max_depth")
+
     direction = "maximize"
 
     def __init__(
@@ -458,6 +470,9 @@ class SetpointSmoothness:
     @ivar name: C{"setpoint_smoothness"} by default.
     @ivar direction: Always C{"minimize"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.control_setting",)
 
     direction = "minimize"
 
@@ -524,6 +539,9 @@ class UncontrolledDischarge:
     @ivar direction: Always C{"minimize"}.
     """
 
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.flow",)
+
     direction = "minimize"
 
     def __init__(
@@ -581,6 +599,9 @@ class StorageUnderUtilization:
     @ivar name: C{"storage_underutilization"} by default.
     @ivar direction: Always C{"minimize"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("node.depth", "node.max_depth")
 
     direction = "minimize"
 
@@ -640,6 +661,9 @@ class PumpEnergy:
     @ivar name: C{"pump_energy"} by default.
     @ivar direction: Always C{"minimize"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.control_setting",)
 
     direction = "minimize"
 
@@ -765,6 +789,9 @@ class SurchargeSlotShare:
     @ivar name: C{"surcharge_slot_share"} by default.
     @ivar direction: Always C{"minimize"}.
     """
+
+    #: Catalog paths this component needs from the engine (see require_for).
+    requires: tuple[str, ...] = ("link.stats.slot_share",)
 
     direction = "minimize"
 

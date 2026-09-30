@@ -52,7 +52,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, require_for
 from openswmm_gymnasium.config import MarketConfig
 from openswmm_gymnasium.control import MarketController, MarketMetricReader
 from openswmm_gymnasium.control.base import Controller
@@ -164,6 +164,8 @@ class SwmmControlEnv(gym.Env):
 
         self.action_space = self.policy_space.space
         self.observation_space = self._observation_builder.space()
+        # A partial engine build fails here, naming what this configuration needs.
+        require_for(self._observation_builder, *self._reward_terms)
         self._adapter: SolverAdapter | None = None
 
     # ------------------------------------------------------------------

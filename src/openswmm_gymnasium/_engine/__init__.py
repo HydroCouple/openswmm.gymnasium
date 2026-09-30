@@ -28,6 +28,8 @@ directly from C{openswmm.engine}. Plan §2 / §2.3.
 @license: Apache-2.0
 """
 
+from openswmm.engine.catalog import unit_label
+
 from openswmm_gymnasium._engine.solver_adapter import (
     EngineCapabilityError,
     LegacySolverRejectedError,
@@ -35,6 +37,7 @@ from openswmm_gymnasium._engine.solver_adapter import (
     element_kind,
     field_entry,
     require_engine_capabilities,
+    require_for,
 )
 
 __all__ = [
@@ -42,6 +45,8 @@ __all__ = [
     "LegacySolverRejectedError",
     "EngineCapabilityError",
     "require_engine_capabilities",
+    "require_for",
     "field_entry",
     "element_kind",
+    "unit_label",
 ]

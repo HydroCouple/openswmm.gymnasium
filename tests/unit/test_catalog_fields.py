@@ -106,3 +106,18 @@ class TestFieldSetpoint(BaseEngineTest):
             FieldSetpoint("link.stats.max_flow", ["C1"], 0.0, 1.0)
         with self.assertRaisesRegex(ValueError, "low < high"):
             FieldSetpoint("link.target_setting", ["C1"], 1.0, 1.0)
+
+
+class TestObservationUnits(BaseEngineTest):
+    def test_units_follow_the_catalog_and_the_model(self):
+        adapter = self.make_adapter()
+        builder = (
+            ObservationBuilder()
+            .add_node_depths(["J1"])
+            .add_field("link.flow", ["C1"])
+            .add_field("link.stats.max_filling", ["C1"])
+            .add_clock(["elapsed_frac"])
+        )
+        units = builder.units(adapter.unit_system, adapter.flow_units)
+        self.assertEqual(units, ["ft", "CFS", "fraction", "dimensionless"])
+        self.assertEqual(len(units), builder.space().shape[0])
