@@ -49,7 +49,7 @@ dependencies = [
     "numpy>=1.21",
     # openswmm.engine v6 — handle-based, thread-safe. Legacy v5 singleton
     # solver under openswmm.legacy.engine is NOT a fallback.
-    "openswmm>=6.0.0.dev2",
+    "openswmm>=6.0.0a4",
 ]
 
 [project.optional-dependencies]

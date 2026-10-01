@@ -5,7 +5,16 @@
 - Python 3.10 or later
 - The compiled [openswmm.engine](https://github.com/HydroCouple/openswmm.engine)
   v6 (handle-based, thread-safe) — installed automatically as a required
-  dependency.
+  dependency. The current adapter also requires `openswmm.engine.catalog`;
+  use an engine build containing the catalog changes from 2026-09-30. The
+  alpha version alone does not distinguish earlier builds with the same version.
+
+Check the required capability before running an environment:
+
+```python
+from openswmm.engine import catalog
+assert catalog.lookup("node.depth")["form"] == "property"
+```
 
 ## Install from PyPI
 

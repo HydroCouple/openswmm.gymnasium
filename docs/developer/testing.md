@@ -118,3 +118,22 @@ adapter; integration tests cover the live-engine surface).
 (processes) over the same env IDs with identical seeds and asserts the
 trajectories match. This directly verifies the §2.3 thread-isolation
 guarantee.
+
+
+## Current binding contract checks
+
+Run these with the same compiled engine and `openswmm.engine.catalog` that will
+be used by the application (for local validation, activate Conda `openswmm`):
+
+```bash
+python -m pytest tests/unit/test_catalog_fields.py tests/unit/test_observations_2d.py \
+  tests/unit/test_engine_capabilities.py tests/unit/test_spec_config.py \
+  tests/unit/test_spec_registry.py tests/unit/test_spec_envs.py -q
+```
+
+Generic `add_field` accepts scalar numeric **element properties**, not every
+catalogued method or service. `add_cell_field` handles supported scalar/bulk
+2D methods and verifies cell counts. A catalog reachability test does not prove
+that every field is a useful observation, every writable field is a runtime
+actuator, or every optional native feature is present. New domains still need
+lifecycle, units, bounds and successful end-to-end fixtures.

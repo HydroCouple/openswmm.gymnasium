@@ -72,6 +72,13 @@ gate = FieldSetpoint("link.target_setting", ["ORIF1", "ORIF2"], 0.0, 1.0)
 inflow = FieldSetpoint("node.lateral_inflow", ["J1"], 0.0, 5.0)  # flow units
 ```
 
+A catalog entry being writable does **not** mean it is writable while the
+simulation is running. `FieldSetpoint` checks the numeric type and writable
+flag, but the native setter enforces lifecycle restrictions during application.
+Use design factories for static geometry and coefficients; test any new runtime
+field with the intended model. Bool/int fields also need appropriate discrete
+semantics; a float `Box` does not infer them.
+
 The action-space key is the path unless `name=` is given. Bounds are in the
 field's own units (`catalog.lookup(path)["units"]`). In a declarative config
 the kind is `field_setpoint`, with params `path`, `ids`, `low`, `high` and an

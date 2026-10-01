@@ -148,7 +148,8 @@ engine's lifecycle error when it does not.
 
 ## Units
 
-Engine getters return values in the model's own units. The builder labels
+Ordinary 1D fields use their catalogued model-unit labels; fixed-unit fields
+retain their documented units. The builder labels
 each feature from the catalog's unit kinds:
 
 ```python
@@ -160,14 +161,19 @@ Every env reports the same list for the loaded model in its `reset()` info as
 `info["flow_units"]`. A feature whose source records no unit (most 2D methods)
 gets an empty label.
 
-### There is no heat, water-age or reaction collector
+### Limits of temperature, age and reaction observations
 
-Deliberately, and not an omission: the engine's C API exposes **no**
-per-node or per-link water-temperature, water-age or species-concentration
-getter. Those three modules are configuration surfaces, so they appear in
-this package as [action factories](action_spaces.md) and nowhere here. The
-only heat quantities readable at all are `SolverAdapter.heat.current_shortwave`
-and `.current_cloud_fraction`, and both are *forcing* rather than state.
+The current 1D element wrappers do not expose live node/link temperature,
+water-age or reaction-species concentration properties. The corresponding
+configuration and forcing methods therefore do not, by themselves, provide a
+closed-loop state observation. `heat.current_shortwave` and
+`heat.current_cloud_fraction` describe forcing rather than transported state.
+
+This limit is specific to live 1D element observations. Groundwater services
+provide cell/species data, and result-file APIs can expose recorded species.
+Neither is automatically a node/link collector. Use the supported per-cell
+methods above where appropriate; a full spatial observation tensor or a new
+1D state collector still needs a dedicated implementation.
 
 The practical consequence is that
 {py:class}`~openswmm_gymnasium.spaces.runtime.HeatSourceTemperatureSetpoint`
