@@ -16,7 +16,7 @@
 
 """G5.2 — the engine capability probe.
 
-C{pyproject.toml} pins C{openswmm>=6.0.0.dev2} with no upper bound and the
+C{pyproject.toml} pins C{openswmm>=6.0.0a4.dev1} with no upper bound and the
 C API is still moving, so the adapter probes for the specific symbols it
 calls instead of asserting a version. The probe is a pure function over a
 namespace object, which is what these tests drive — no engine required.

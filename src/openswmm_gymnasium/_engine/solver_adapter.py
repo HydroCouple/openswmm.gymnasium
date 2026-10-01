@@ -171,7 +171,7 @@ def _reject_legacy(solver: object) -> None:
 # Engine capability probe
 # ---------------------------------------------------------------------------
 #
-# ``pyproject.toml`` pins ``openswmm>=6.0.0.dev2`` with no upper bound, and the
+# ``pyproject.toml`` pins ``openswmm>=6.0.0a4.dev1`` with no upper bound, and the
 # C API is still moving. Rather than a hard version floor — which a partial
 # build (e.g. ``OPENSWMM_BUILD_2D=OFF``) would satisfy while still lacking a
 # symbol, and which a newer-but-compatible build would fail — this package
