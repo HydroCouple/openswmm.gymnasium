@@ -89,9 +89,9 @@ Your Contributions are provided on an **"AS IS" basis**, without warranties or c
 
 First-time contributors must sign this CLA before their pull request can be merged. Signing is done through GitHub or by email — no PDF is required.
 
-**Using CLA Assistant (recommended):**
+**Using the CLA Assistant GitHub Action (recommended):**
 
-The project uses [CLA Assistant](https://cla-assistant.io) to automate CLA signing. When you open your first pull request, a bot will post a comment asking you to sign. Click the link in that comment and authenticate with your GitHub account to record your agreement.
+The project uses the [CLA Assistant GitHub Action](https://github.com/contributor-assistant/github-action) to automate CLA signing. When you open your first pull request, the action posts a comment asking you to sign. Sign by replying on the pull request with the comment shown below. The action records your GitHub username, the pull request, and the date and time of your signature in `.github/cla-signatures.json` in this repository.
 
 Alternatively, you may sign manually by posting the following comment on your pull request:
 
