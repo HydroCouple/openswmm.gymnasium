@@ -158,8 +158,9 @@ builder.units("US", "CFS")   # ['ft', 'CFS', 'fraction', 'dimensionless', ...]
 
 Every env reports the same list for the loaded model in its `reset()` info as
 `info["observation_units"]`, next to `info["unit_system"]` and
-`info["flow_units"]`. A feature whose source records no unit (most 2D methods)
-gets an empty label.
+`info["flow_units"]`. 2D quantities are SI whatever the model's flow units:
+depths and heads are labelled `m`, rain and source rates `m/s`. A feature
+whose source records no unit gets an empty label.
 
 ### Limits of temperature, age and reaction observations
 
