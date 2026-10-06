@@ -2,7 +2,7 @@
 
 # openswmm.gymnasium
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Lint](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/lint.yml/badge.svg)](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/lint.yml)
 [![Unit Testing](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/unit_testing.yml/badge.svg)](https://github.com/HydroCouple/openswmm.gymnasium/actions/workflows/unit_testing.yml)
@@ -22,9 +22,11 @@ API, so every environment runs a real hydraulic/hydrologic simulation — not a
 surrogate — and many environments can be stepped concurrently in separate
 threads.
 
-> **Status:** pre-release, under active development. See
-> [docs/IMPLEMENTATION_PLAN.md](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/docs/IMPLEMENTATION_PLAN.md)
-> for the authoritative scope, architecture, and milestone schedule.
+> **Status:** pre-release, under active development. The
+> [architecture page](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/docs/developer/architecture.md)
+> describes the package layout, and the
+> [CHANGELOG](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/CHANGELOG.md)
+> records what has landed.
 
 ---
 
@@ -41,6 +43,11 @@ reinforcement-learning and multi-objective-optimization toolchain at it.
   joint environment that picks a design at `reset()` and controls it at runtime.
 - **Multi-objective native.** Built-in hypervolume, ε-indicator, IGD, R2, and
   spread scoring over the achieved Pareto front.
+- **Any engine field.** Observe any numeric field in the engine catalog
+  (`add_field`) or any per-cell 2D quantity (`add_cell_field`), actuate any
+  writable field (`FieldSetpoint`), and get each feature's units at `reset()`.
+- **Declarative specs.** Build any environment from JSON with
+  `openswmm_gymnasium.spec` (the `spec` extra).
 - **Batteries included.** Ten bundled benchmark scenarios (`b01`–`b10`),
   observation builders, reward terms, action wrappers, and Plotly trajectory
   visualizations.
@@ -62,6 +69,7 @@ flowchart TB
         WRAP["wrappers<br/>mask · remap · forecast · record"]
         VIZ["viz<br/>Plotly figures"]
         ADAPT["_engine<br/>SolverAdapter"]
+        SPEC["spec<br/>JSON env configs"]
     end
 
     subgraph Engine["openswmm.engine v6"]
@@ -69,6 +77,7 @@ flowchart TB
     end
 
     A --> ENV
+    SPEC --> ENV
     ENV --> OBS
     ENV --> ACT
     ENV --> REW
@@ -91,7 +100,8 @@ pip install openswmm.gymnasium                      # core
 pip install "openswmm.gymnasium[mo]"                # + multi-objective (mo-gymnasium)
 pip install "openswmm.gymnasium[platypus]"          # + Platypus MOO adapter
 pip install "openswmm.gymnasium[viz]"               # + Plotly trajectory visualizations
-pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
+pip install "openswmm.gymnasium[spec]"              # + JSON env specs (pydantic)
+pip install "openswmm.gymnasium[mo,platypus,viz,spec]"   # everything
 ```
 
 ### From source (for development)
@@ -99,7 +109,7 @@ pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
 ```bash
 git clone https://github.com/HydroCouple/openswmm.gymnasium.git
 cd openswmm.gymnasium
-pip install -e ".[dev,docs,mo,platypus,viz]"
+pip install -e ".[dev,docs,mo,platypus,viz,spec]"
 ```
 
 The `[dev]` extra installs `pytest`, `pytest-cov`, and `ruff`; `[docs]` adds
@@ -302,4 +312,4 @@ By participating you agree to abide by our
 
 ## License
 
-MIT — see [LICENSE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE).
+Apache License, Version 2.0 — see [LICENSE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/LICENSE) and [NOTICE](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/NOTICE).

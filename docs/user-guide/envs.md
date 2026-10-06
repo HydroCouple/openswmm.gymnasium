@@ -1,13 +1,14 @@
 # Environments
 
-The package ships four Gymnasium env classes. All conform to the
-plan §3 action-space contract — `Dict({"design": ..., "runtime": ...})`
-— even when one half is empty for clarity.
+The package ships five Gymnasium env classes. The action-space envs expose
+a `Dict` with the design and runtime halves they use (see
+{doc}`/user-guide/action_spaces`); `SwmmControlEnv` takes a policy-parameter
+vector.
 
 ## `SwmmRTCEnv` — runtime-only
 
-Drives one or more runtime factories every `step()`. Design Dict is
-empty. Standard `gymnasium.Env`; returns `(obs, reward, terminated,
+Drives one or more runtime factories every `step()`. Its action space is
+`Dict({"runtime": ...})`. Standard `gymnasium.Env`; returns `(obs, reward, terminated,
 truncated, info)`.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmRTCEnv`.
@@ -37,6 +38,53 @@ episode termination with the single-point normalised hypervolume of
 the cumulative-cost vector.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmMORTCEnv`.
+
+## `SwmmControlEnv` — policy-parameter search
+
+A single-step env whose **action is a controller policy-parameter vector**,
+not a per-step action or a model design. On `step()` it decodes the vector
+into a controller, runs the entire simulation under that controller, and
+returns the operational objective totals in `info["reward_components"]`. The
+optimizer searches the vector exactly as it searches a design vector — one
+decision vector per episode — which is how a reactive control policy's static
+parameters get tuned to trace an operational cost curve.
+
+It is controller-agnostic, driving any
+{py:class}`~openswmm_gymnasium.control.base.Controller`:
+
+- {py:class}`~openswmm_gymnasium.control.MarketController` — reactive
+  agent-based capacity market (cost curves + PID).
+- {py:class}`~openswmm_gymnasium.control.ControlCurveController` — reactive
+  piecewise-linear breakpoint curves
+  ({py:class}`~openswmm_gymnasium.spaces.control_curve.ControlCurvePolicySpace`);
+  see {doc}`/user-guide/action_spaces`.
+- {py:class}`~openswmm_gymnasium.control.ScheduleController` — open-loop
+  per-structure setting schedule.
+
+See {py:class}`openswmm_gymnasium.envs.SwmmControlEnv`.
+
+## Engine requirements
+
+Each observation collector, reward term and action factory declares the
+engine catalog paths it reads or writes in a `requires` attribute, and every
+env checks them against the installed engine when it is constructed:
+
+```python
+from openswmm_gymnasium._engine import CORE_REQUIREMENTS, require_for
+
+require_for(builder, *factories, *reward_terms)  # what the envs do
+```
+
+A build without an optional module (2D, heat, water age, reactions, tables)
+therefore fails only the envs configured to use it, with an
+`EngineCapabilityError` naming every missing path, instead of failing every
+env at import or deep inside a rollout. `CORE_REQUIREMENTS` lists what every
+env needs. A custom component takes part by setting `requires` to a tuple of
+catalog paths.
+
+Whether the open *model* enables a module (`[OPTIONS] HEAT_TRANSPORT`,
+`WATER_AGE`, an active 2D surface) is a separate check made when the
+component binds, because the catalog cannot know it.
 
 ## Registered IDs
 

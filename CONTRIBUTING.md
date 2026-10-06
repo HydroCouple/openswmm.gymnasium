@@ -95,7 +95,7 @@ sphinx-build -b html docs docs/_build/html
 
 ## 5. Project Structure
 
-See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the authoritative module layout. Summary:
+See [docs/developer/architecture.md](docs/developer/architecture.md) for the class hierarchy and data flow. Summary:
 
 ```
 src/openswmm_gymnasium/
@@ -164,4 +164,4 @@ Each environment lives under `src/openswmm_gymnasium/envs/`. To add a new enviro
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE) and you have signed the [CLA](CLA.md).
+By contributing, you agree that your contributions will be licensed under the [Apache License, Version 2.0](LICENSE) and you have signed the [CLA](CLA.md).

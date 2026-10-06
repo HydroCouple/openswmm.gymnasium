@@ -7,6 +7,221 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — units, requirements, 2D cells and declarative specs
+
+- **Observation units.** `ObservationBuilder.units(unit_system, flow_units)`
+  labels every feature from the engine catalog (`"ft"`, `"CFS"`,
+  `"fraction"`, ...), and every env's `reset()` info carries them as
+  `observation_units`. Labels come from `openswmm.engine.catalog.unit_label`,
+  shared with openswmm.mcp.
+- **`ObservationBuilder.add_cell_field(path, cells, **args)`** observes a
+  per-cell 2D quantity at chosen mesh cells: any 2D-service method that returns
+  one value per cell (`"surface2d.get_depths"`, `"surface2d.infiltration.rate"`,
+  `"surface2d.groundwater.cells"` with `variable="HG"`,
+  `"surface2d.quality.buildup"` with `species="TSS"`) or takes the cell index
+  (`"surface2d.get_rainfall"`). `SolverAdapter.call(path, ...)` invokes any
+  catalog method.
+- **Per-component engine requirements.** Observation collectors, reward terms,
+  design factories and runtime actuators declare the catalog paths they need
+  (`requires`), and every env checks them with `require_for(...)` at
+  construction. A partial engine build now fails only the envs that need the
+  missing module, naming it; `CORE_REQUIREMENTS` is what every env needs.
+- **`openswmm_gymnasium.spec`** (moved from openswmm.mcp): build any env from
+  plain JSON (`EnvConfig`, `build_env`), the kind registry with parameter
+  schemas, and a thread-safe env manager. Needs the new `spec` extra
+  (`pip install openswmm.gymnasium[spec]`, adds pydantic). Errors are
+  `SpecError` with an `ErrorCode`. `ObservationSpec` gains `fields` and
+  `cell_fields`.
+
+### Changed
+
+- **Action spaces carry only their non-empty halves.** Gymnasium's `check_env`
+  rejects an empty `Dict`, so an RTC env's action space is
+  `Dict({"runtime": ...})` and a CIP env's `Dict({"design": ...})`; the joint
+  env keeps both. Code that indexed `action_space["design"]` on an RTC env must
+  use `.get`.
+- The private adapter's node, link, subcatchment and pollutant shims keep their
+  interface but read and write through catalog field paths.
+
+### Added — any engine field as an observation or an action
+
+- **Catalog field paths.** `SolverAdapter.read`, `read_all`, `write` and
+  `index` read and write any numeric element field by its path in
+  `openswmm.engine.catalog` (`"node.depth"`, `"link.stats.max_flow"`);
+  `field_entry` and `element_kind` validate a path. Requires an engine build
+  that ships the catalog.
+- **`ObservationBuilder.add_field(path, ids)`** observes any numeric element
+  field. The named `add_node_depths`, `add_link_flows`, ... methods are now
+  thin aliases for the matching field paths.
+- **`FieldSetpoint` runtime actuator** writes any writable numeric element
+  field every control step, clipped to `[low, high]`.
+
+### Changed
+
+- Control-curve observations (`ControlCurveMetricReader`) read through the
+  catalog field paths (`node.depth`, `node.head`, `node.volume`,
+  `node.inflow`).
+- Removed the per-field compatibility getters and `_GagesCompat` from the
+  private `_engine` adapter; the field paths above replace them.
+
+### Fixed
+
+- `test_retention_curve_reduces_discharge` used a retention curve that never
+  throttled the orifice at the tank depths the model reaches; the curve now
+  starts low enough to bind.
+
+### Added — process-configuration surfaces (heat, water age, reactions)
+
+- **Adapter reach for the engine's heat, water-age and reaction modules.**
+  New `_HeatCompat`, `_WaterAgeCompat` and `_ReactionsCompat` shims behind
+  lazily-cached `SolverAdapter.heat` / `.water_age` / `.reactions`
+  accessors. These are *configuration* surfaces, not observation surfaces:
+  the C API exposes no per-node or per-link temperature, water-age or
+  species-concentration getter, so nothing here is wired into
+  `ObservationBuilder`. The only genuinely observable new state is the two
+  current-step scalars `heat.current_shortwave` and
+  `heat.current_cloud_fraction`, both of which are forcing rather than state.
+- **Two-tier guards on the new optional accessors.** Tier 1 asks whether the
+  engine *build* carries the module; tier 2 asks whether the open *model*
+  enables it (`[OPTIONS] HEAT_TRANSPORT` / `WATER_AGE`). Both raise with the
+  remedy named rather than returning defaults, because a heat or water-age
+  configuration written into a model that never routes it is a silent no-op —
+  stored, never transported, nothing raised, no reward signal moving. None of
+  the three is a core requirement (`CORE_REQUIREMENTS`): listing an optional module
+  would make a partial build unusable for every env rather than only for the
+  envs that touch it.
+- **`ReactionCoefficientValue` design factory.** Searches
+  `[REACTION_COEFFICIENTS]` **PARAMETER** values — the rate constants,
+  half-saturation constants, yields and stoichiometric factors a
+  water-quality modeller normally fits by hand. Turns calibration into an
+  ordinary optimisation over the same env machinery that does CIP sizing.
+  CONSTANT coefficients are refused at `bind` rather than written and
+  silently ignored. Bounds are in the model's own expression units,
+  unconverted.
+- **`HeatSourceTemperature` design factory** — global inlet temperature per
+  heat-source pathway, degC, bounded by default to the engine's own
+  `[-50, 100]` refusal range so a sampled action can never be refused
+  mid-episode (the engine refuses rather than clamps, and a refused write
+  does not take effect).
+- **`WaterAgeSourceAge` design factory** — global source age per water-age
+  pathway, hours. Negative values are legal and meaningful (age-volume
+  extraction; the engine clamps the *result* at zero, not the input), so the
+  low bound is not floored at zero and has no default.
+- **`HeatSourceTemperatureSetpoint` runtime actuator** — per-pathway inlet
+  temperature applied every step. Heat source writes are documented live, so
+  the same engine call backs both the design factory and this actuator. No
+  water-age runtime twin ships: a source's assigned age is a bookkeeping
+  label rather than something an operator can move during an event, so
+  per-step modulation would let an agent chase reward by rewriting its own
+  accounting.
+- **Preissmann-slot link readers.** `SolverAdapter.links.slot_volume`,
+  `.peak_slot_share` and `.slot_share`. All three read a hard `0.0` under any
+  router other than `FLOW_ROUTING FV` — a value indistinguishable from "no
+  slot flow" — which is documented loudly at the call site.
+- **`SurchargeSlotShare` reward term.** Run-level Preissmann-slot storage
+  share as a pressurisation proxy; dimensionless in `[0, 1]`, the one term
+  with no unit-system dependence. Registered as `"surcharge_slot_share"`.
+  `bind` reads `[OPTIONS] FLOW_ROUTING` and **raises** on any non-FV router
+  rather than reporting a permanently perfect network. The statistic is a
+  ratio of time integrals and cannot be reconstructed from env-step samples.
+- **`SolverAdapter.get_option`** — the read counterpart of `set_option`,
+  used to answer model-level questions such as which router is active.
+
+### Added — declarative-config reach (`openswmm.mcp`)
+
+- **Observation collectors reachable from an `EnvConfig`.**
+  `add_pollutant_concentration`, `add_link_pollutant_concentration` and
+  `add_2d_vertex_depths` existed in code but had no `_OBS_METHODS` entry, so
+  they were unreachable declaratively. Added as the `ObservationSpec` fields
+  `node_pollutant_concentration` / `link_pollutant_concentration` (each a
+  pollutant-ID → element-IDs map, so several pollutants can be requested at
+  once) and `vertex_depths_2d`.
+- **Registry entries** for every new factory and term, plus `tss_load`,
+  which shipped in G4 but was never registered and so was likewise
+  unreachable from a declarative config.
+
+### Fixed — documentation
+
+- `docs/user-guide/observations.md`'s collector table omitted six collectors
+  that exist in code (`add_node_volumes`, `add_node_lateral_inflows`,
+  `add_link_velocities`, `add_link_capacities`, `add_link_volumes`,
+  `add_2d_vertex_depths`).
+- `docs/user-guide/rewards.md`'s term table omitted `UncontrolledDischarge`,
+  `StorageUnderUtilization` and `PumpEnergy`, all three of which the prose
+  below it already referenced.
+- `docs/user-guide/action_spaces.md`'s runtime table omitted
+  `NodeLateralInflow` and named the wrong engine surface for `OrificeSetting`
+  (`Controls.set_link_setting`, which the engine recomputes each routing step
+  and so does not stick, rather than `Links.set_target_setting`).
+- `docs/developer/testing.md`'s "Fixtures" section described pytest
+  `conftest.py` fixtures that no longer exist; it now documents the
+  `tests/unit/_base.py` base classes, the hand-rolled-fake convention, and
+  the `skipUnless` idiom for build-optional engine surfaces. The run, lint
+  and coverage commands were corrected to stdlib `unittest`.
+
+### Changed
+
+- **Relicensed from MIT to the Apache License, Version 2.0.** `LICENSE` now
+  carries the full Apache 2.0 text and a new `NOTICE` file records the required
+  attribution, including the USEPA SWMM public domain provenance inherited
+  through the engine. All first-party source headers carry the Apache 2.0
+  boilerplate and an `SPDX-License-Identifier: Apache-2.0` tag. `pyproject.toml`
+  declares `license = "Apache-2.0"` with `license-files = ["LICENSE", "NOTICE"]`,
+  and `CLA.md` (v1.1), `CONTRIBUTING.md` and `README.md` were updated to match.
+
+### Added — API gap-fill phases G2–G5
+
+- **Shape-aware cross-section sizing (G2).** `LinkDiameter` now resizes a
+  section to a target **rise** (full depth, read from the engine's
+  `XSectionGeometry`), scaling every length-dimensioned geometry parameter of
+  the shape by the same factor. A box culvert's width now moves with its
+  height instead of being left at its baseline. Shapes with no scalable
+  dimension (`IRREGULAR`, `STREET_XSECT`, `DUMMY`) are rejected at `bind`.
+- **Exact filling ratios (G2).** `MarketMetricReader`'s `filling_ratio`
+  normalises by the section's true rise instead of `geom1`, so it is exact for
+  every shape rather than "approximate for non-CIRCULAR".
+- **Tabular storage design (G3).** `StorageVolume` accepts TABULAR storage
+  nodes, scaling the node's depth–area curve through the new
+  `SolverAdapter.tables` accessor, instead of requiring the `NodeMaxDepth`
+  proxy. `mode="coeffs"` stays FUNCTIONAL-only; geometric storage shapes and
+  curves shared between two target nodes are rejected at `bind`.
+- **Pollutant observations (G4).** `ObservationBuilder.add_pollutant_concentration`
+  (nodes) and `add_link_pollutant_concentration`, both using the engine's bulk
+  `qualities()` read.
+- **`TSSLoad` reward term (G4).** Pollutant mass flux
+  (`flow × concentration × dt`) through a set of links; works for any declared
+  pollutant. Registered as `"tss_load"`.
+- **Engine capability probe (G5).** `SolverAdapter` construction now verifies
+  the installed `openswmm.engine` exposes every symbol this package calls and
+  raises `EngineCapabilityError` naming the missing ones. Replaces two ad-hoc
+  `getattr(..., None)` fallbacks. Optional surfaces (the 2D module) are
+  deliberately not probed, so `OPENSWMM_BUILD_2D=OFF` builds still work.
+
+### Changed
+
+- `FloodingVolume` / `CSOVolume` now read the engine's cumulative
+  `swmm_node_get_stat_vol_flooded` statistic and report its per-step
+  increment, instead of sampling the instantaneous overflow rate once per env
+  step and multiplying by `dt`. The engine integrates every routing step, so
+  volume that occurs between two env steps is no longer lost.
+  **The reported quantity is now in project volume units (ft³ / m³)** and no
+  longer scales with `dt_seconds`; for CFS/CMS models the numbers are
+  unchanged in kind, for GPM/MGD/LPS/MLD models the units differ from before.
+- `PeakOutflow` reads the engine's cumulative `swmm_link_get_stat_max_flow`
+  rather than sampling `link.flow`, so a peak between two env steps is caught.
+  Units and semantics (project flow units, cumulative equals the peak) are
+  unchanged.
+
+### Fixed
+
+- **`NodeLateralInflow.apply` raised `AttributeError` on every call (G1).** It
+  reached for `adapter.set_lateral_inflow`, which `SolverAdapter` does not
+  define — the setter lives on the `nodes` collection and there is no
+  `__getattr__` delegation, so the action was never applied. It now goes
+  through `adapter.nodes.set_lateral_inflow`, matching how the sibling
+  `OrificeSetting` actuator reaches `adapter.links`. Covered by an engine-free
+  regression test so the delegation path is checked without a built engine.
+
 ### Added — initial release surface (v0.1.0)
 
 #### Framework envs
@@ -25,10 +240,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime factory: `OrificeSetting(link_ids)` →
   `Controls.set_link_setting` (defensive `np.clip` to bounds).
 - Design factories: `LinkRoughness`, `LinkLength`, `LinkDiameter`
-  (preserves cross-section shape), `NodeMaxDepth`.
+  (preserves cross-section shape; see G2 above for the shape-aware sizing
+  that superseded its original `geom1`-only behaviour), `NodeMaxDepth`.
 - Design factories applied **between** `Solver.open()` and
   `Solver.initialize()` so the engine picks up overridden values during
   data-structure setup.
+- Asset-sizing design factories for exhaustive design exploration:
+  `StorageVolume` (FUNCTIONAL storage sizing — scalar footprint multiplier or
+  raw `(a, b, c)` coefficients), `LIDPlacement` (green-infrastructure /
+  nature-based-solution sizing + LID type selection per subcatchment), and
+  `RDIIUnitHydrograph` (RDII R-fraction and optional initial-abstraction
+  sizing, preserving T and K). Backed by new `SolverAdapter` storage /
+  `infrastructure` / `inflows` setters.
 
 #### Observations
 - `ObservationBuilder` with 10 collectors covering nodes (depths, heads,
@@ -90,6 +313,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each `SolverAdapter` owns a distinct `SWMM_Engine` handle, enabling
   both `gymnasium.vector.SyncVectorEnv` (threads) and `AsyncVectorEnv`
   (processes) rollouts.
+- `SolverAdapter.open(lenient=True)` opt-in permissive open plus
+  `SolverAdapter.open_errors` / `SolverAdapter.open_warnings` accessors,
+  surfacing the engine's `set_lenient_open` / validation-accumulator
+  API for pre-flight validation of programmatically-generated or
+  perturbed training models (broken candidates are reported/rejected
+  instead of crashing the rollout). The env run path stays strict.
 
 ### Conventions
 - Docstrings: epytext (`@param`, `@type`, `@return`, `@rtype`,

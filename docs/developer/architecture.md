@@ -1,8 +1,7 @@
 # Architecture
 
-This page summarises the package layout; see
-[`IMPLEMENTATION_PLAN.md`](https://github.com/HydroCouple/openswmm.gymnasium/blob/main/docs/IMPLEMENTATION_PLAN.md)
-for the authoritative architecture document.
+This page describes the class hierarchy, the package layout, the
+thread-safety contract, the reward sign convention and the solver lifecycle.
 
 ## Class hierarchy
 
