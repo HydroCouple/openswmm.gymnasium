@@ -32,11 +32,9 @@ import unittest
 
 import numpy as np
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.observations import builder as _b
-
+from tests.unit._base import BaseEngineTest
 
 _SIZE_CASES = [
     ("add_node_volumes", ["J1"], 1),

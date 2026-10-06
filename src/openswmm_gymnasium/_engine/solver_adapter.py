@@ -213,8 +213,9 @@ def _engine_class(entry: dict, module) -> type | None:
     cls = getattr(_engine, entry["class"], None)
     if cls is None:
         try:
-            cls = getattr(importlib.import_module(f"openswmm.engine.{entry['module']}"),
-                          entry["class"], None)
+            cls = getattr(
+                importlib.import_module(f"openswmm.engine.{entry['module']}"), entry["class"], None
+            )
         except ImportError:
             return None
     return cls
@@ -410,9 +411,7 @@ class _LinksCompat(_ElementCompat):
         # consumers coerce it with int().
         return self._col[idx].xsect.as_tuple()
 
-    def set_xsect(
-        self, idx: int, shape: int, g1: float, g2: float, g3: float, g4: float
-    ) -> None:
+    def set_xsect(self, idx: int, shape: int, g1: float, g2: float, g3: float, g4: float) -> None:
         # The v6 xsect setter accepts a (shape, g1, g2, g3, g4) tuple.
         self._col[idx].xsect = (shape, g1, g2, g3, g4)
 
@@ -564,12 +563,8 @@ class _InfrastructureCompat:
         # Create a new LID control of ``lid_type`` (a LidType / int code).
         return self._infra.lids.add(lid_id, LidType(int(lid_type)))
 
-    def set_lid_surface(
-        self, idx: int, storage: float, roughness: float, slope: float
-    ) -> None:
-        self._infra.lids.set_surface(
-            idx, storage=storage, roughness=roughness, slope=slope
-        )
+    def set_lid_surface(self, idx: int, storage: float, roughness: float, slope: float) -> None:
+        self._infra.lids.set_surface(idx, storage=storage, roughness=roughness, slope=slope)
 
     def lid_usage_add(
         self,
@@ -631,9 +626,7 @@ class _InflowsCompat:
         drecov: float,
         dinit: float,
     ) -> None:
-        self._inflows.set_hydrograph_ia(
-            uh_name, int(month), int(response), dmax, drecov, dinit
-        )
+        self._inflows.set_hydrograph_ia(uh_name, int(month), int(response), dmax, drecov, dinit)
 
     def add_rdii(self, node: int | str, uh_name: str, area: float) -> None:
         self._inflows.add_rdii(node, uh_name, area)
@@ -791,7 +784,11 @@ class _HeatCompat:
         """
         # swmm_heat_get_node_override_at
         row = self._heat.node_overrides[row_index]
-        return (str(getattr(row.source, "name", row.source)), int(row.node_index), float(row.temp_c))
+        return (
+            str(getattr(row.source, "name", row.source)),
+            int(row.node_index),
+            float(row.temp_c),
+        )
 
     def set_node_override(self, source: str, node: int | str, temp_c: float) -> None:
         # swmm_heat_set_node_override — DWF / EXTERNAL_INFLOW only (the H1
@@ -987,8 +984,7 @@ class _ReactionsCompat:
             scope_enum = _engine.ReactionScope[str(scope).upper()]
         except KeyError as exc:
             raise ValueError(
-                f"unknown reaction scope {scope!r}; expected one of "
-                "'TERM', 'PIPE', 'TANK'"
+                f"unknown reaction scope {scope!r}; expected one of 'TERM', 'PIPE', 'TANK'"
             ) from exc
         diag = self._rxn.validate(expression, scope_enum)
         return (bool(diag.valid), str(diag.message), int(diag.column))
@@ -1645,7 +1641,6 @@ class SolverAdapter:
         if self._subcatchments is None:
             self._subcatchments = _SubcatchmentsCompat(self._solver, Subcatchments(self._solver))
         return self._subcatchments
-
 
     @property
     def infrastructure(self) -> _InfrastructureCompat:

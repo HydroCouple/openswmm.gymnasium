@@ -31,7 +31,6 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
-from tests.unit._base import BaseTestCase
 
 from openswmm_gymnasium.benchmarks.b01_twin_tank import SCENARIO_INP
 from openswmm_gymnasium.config import (
@@ -45,6 +44,7 @@ from openswmm_gymnasium.config import (
 from openswmm_gymnasium.envs import SwmmControlEnv
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, UncontrolledDischarge
+from tests.unit._base import BaseTestCase
 
 
 def _twin_tank_config() -> MarketConfig:

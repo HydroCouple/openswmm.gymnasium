@@ -27,9 +27,9 @@ engine over C{minimal.inp} (B{no mocks}).
 
 from __future__ import annotations
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm.engine import HotStart, Solver
+
+from tests.unit._base import BaseEngineTest
 
 
 class TestSeedHotstart(BaseEngineTest):

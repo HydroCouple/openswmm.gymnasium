@@ -53,7 +53,7 @@ class TestCostCurves(unittest.TestCase):
     def test_piecewise_linear_monotonic_and_endpoints(self):
         c = CostCurve(type="piecewise_linear", onset=0.6, full=1.0)
         vals = [price_from_curve(m, c) for m in _GRID]
-        self.assertTrue(all(b >= a for a, b in zip(vals, vals[1:])))
+        self.assertTrue(all(b >= a for a, b in zip(vals, vals[1:], strict=False)))
         self.assertEqual(price_from_curve(0.6, c), 0.0)  # at onset -> floor
         self.assertEqual(price_from_curve(0.5, c), 0.0)  # below onset -> floor
         self.assertEqual(price_from_curve(1.0, c), 1.0)  # at full -> ceiling
@@ -61,7 +61,7 @@ class TestCostCurves(unittest.TestCase):
     def test_logistic_monotonic_and_midpoint(self):
         c = CostCurve(type="logistic", onset=0.85, steepness=20)
         vals = [price_from_curve(m, c) for m in _GRID]
-        self.assertTrue(all(b >= a for a, b in zip(vals, vals[1:])))
+        self.assertTrue(all(b >= a for a, b in zip(vals, vals[1:], strict=False)))
         # Logistic is centred on onset: price == midpoint of [floor, ceiling].
         self.assertAlmostEqual(price_from_curve(0.85, c), 0.5, places=6)
 
@@ -173,9 +173,7 @@ class TestMarketController(unittest.TestCase):
     def test_max_starts_per_hour_caps_starts(self):
         # One start allowed per hour. Toggle demand on/off across a full hour of
         # 60 s steps; only the first ON should ever take effect.
-        cfg = _one_route_config(
-            RouteConstraints(min_cycle_seconds=0, max_starts_per_hour=1)
-        )
+        cfg = _one_route_config(RouteConstraints(min_cycle_seconds=0, max_starts_per_hour=1))
         mc = MarketController(cfg)
         on = {"B": 1.0, "S": 0.0}
         off = {"B": 0.0, "S": 1.0}
@@ -184,9 +182,7 @@ class TestMarketController(unittest.TestCase):
             settings.append(mc.compute_settings(on if i % 2 == 0 else off, 60.0)["GATE"])
         # The route turns on once and is then start-capped: after it is forced
         # off it cannot restart within the hour.
-        starts = sum(
-            1 for a, b in zip([0.0] + settings, settings) if a <= 1e-6 < b
-        )
+        starts = sum(1 for a, b in zip([0.0] + settings, settings, strict=False) if a <= 1e-6 < b)
         self.assertEqual(starts, 1)
 
 

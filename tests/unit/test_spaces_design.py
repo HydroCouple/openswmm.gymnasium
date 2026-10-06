@@ -55,19 +55,19 @@ _BOX_FACTORIES = [
 
 class TestConstruction(unittest.TestCase):
     def test_default_name(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids, low=0.01, high=0.05)
                 self.assertEqual(f.name, name)
 
     def test_empty_ids_raises(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, _ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 with self.assertRaisesRegex(ValueError, "at least one"):
                     cls([], low=0.0, high=1.0)
 
     def test_invalid_bounds_raise(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 with self.assertRaisesRegex(ValueError, "strictly greater"):
                     cls(ids, low=1.0, high=1.0)
@@ -77,7 +77,7 @@ class TestConstruction(unittest.TestCase):
 
 class TestSpace(unittest.TestCase):
     def test_box_shape(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids * 3, low=0.0, high=1.0)
                 s = f.space
@@ -86,7 +86,7 @@ class TestSpace(unittest.TestCase):
                 self.assertEqual(s.dtype, np.float32)
 
     def test_bounds_propagate(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids, low=0.25, high=0.75)
                 s = f.space
@@ -94,7 +94,7 @@ class TestSpace(unittest.TestCase):
                 self.assertTrue(np.allclose(s.high, [0.75]))
 
     def test_sample_in_bounds(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids, low=0.1, high=0.9)
                 for _ in range(20):
@@ -105,7 +105,7 @@ class TestSpace(unittest.TestCase):
 
 class TestApplyRequiresBind(unittest.TestCase):
     def test_apply_before_bind_raises(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids, low=0.0, high=1.0)
 
@@ -118,7 +118,7 @@ class TestApplyRequiresBind(unittest.TestCase):
 
 class TestProtocolConformance(unittest.TestCase):
     def test_satisfies_factory_protocol(self):
-        for cls, name, kwarg, ids in _BOX_FACTORIES:
+        for cls, _name, _kwarg, ids in _BOX_FACTORIES:
             with self.subTest(cls=cls.__name__):
                 f = cls(ids, low=0.0, high=1.0)
                 self.assertIsInstance(f, DesignActionFactory)

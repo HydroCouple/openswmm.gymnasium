@@ -209,9 +209,7 @@ class TestSurchargeSlotShare(unittest.TestCase):
     def test_bind_falls_back_to_the_alternate_option_key(self):
         term = SurchargeSlotShare(_LINK_IDS)
         with self.assertRaises(ValueError):
-            term.bind(
-                _FakeAdapter(options={"FLOW_ROUTING": None, "ROUTING_MODEL": "DYNWAVE"})
-            )
+            term.bind(_FakeAdapter(options={"FLOW_ROUTING": None, "ROUTING_MODEL": "DYNWAVE"}))
 
     def test_bind_proceeds_when_the_router_cannot_be_detected(self):
         """An engine that reports neither key must not block the term."""
@@ -392,9 +390,7 @@ class TestHeatSourceTemperature(unittest.TestCase):
         factory = HeatSourceTemperature(["DWF", "EXTERNAL_INFLOW"], 0.0, 40.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([12.0, 21.0], dtype=np.float32))
-        self.assertEqual(
-            adapter.heat.writes, [("DWF", 12.0), ("EXTERNAL_INFLOW", 21.0)]
-        )
+        self.assertEqual(adapter.heat.writes, [("DWF", 12.0), ("EXTERNAL_INFLOW", 21.0)])
 
     def test_apply_clips_to_the_declared_bounds(self):
         adapter = _FakeAdapter()
@@ -428,9 +424,7 @@ class TestHeatSourceTemperatureSetpoint(unittest.TestCase):
             HeatSourceTemperatureSetpoint(["DWF"], 10.0, 10.0)
 
     def test_space_shape_matches_the_source_count(self):
-        self.assertEqual(
-            HeatSourceTemperatureSetpoint(["DWF", "GW"], 0.0, 30.0).space.shape, (2,)
-        )
+        self.assertEqual(HeatSourceTemperatureSetpoint(["DWF", "GW"], 0.0, 30.0).space.shape, (2,))
 
     def test_apply_before_bind_raises(self):
         factory = HeatSourceTemperatureSetpoint(["DWF"])
@@ -456,9 +450,7 @@ class TestHeatSourceTemperatureSetpoint(unittest.TestCase):
         factory.bind(adapter)
         for temp in (10.0, 15.0, 20.0):
             factory.apply(adapter, np.array([temp], dtype=np.float32))
-        self.assertEqual(
-            adapter.heat.writes, [("DWF", 10.0), ("DWF", 15.0), ("DWF", 20.0)]
-        )
+        self.assertEqual(adapter.heat.writes, [("DWF", 10.0), ("DWF", 15.0), ("DWF", 20.0)])
 
 
 # =============================================================================

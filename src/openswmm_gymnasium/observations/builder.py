@@ -267,10 +267,7 @@ class _Surface2DVertexDepthCollector:
         n = adapter.surface2d.n_vertices
         bad = [i for i in self._vertex_idxs if not 0 <= i < n]
         if bad:
-            raise ValueError(
-                f"{self._kind_label}: vertex indices out of range "
-                f"[0, {n}): {bad}"
-            )
+            raise ValueError(f"{self._kind_label}: vertex indices out of range [0, {n}): {bad}")
         self._idx_arr = np.asarray(self._vertex_idxs, dtype=np.intp)
 
     def collect(self, adapter: SolverAdapter) -> np.ndarray:
@@ -607,9 +604,7 @@ class ObservationBuilder:
         )
         return self
 
-    def add_subcatch_groundwater(
-        self, subcatch_ids: Sequence[str]
-    ) -> ObservationBuilder:
+    def add_subcatch_groundwater(self, subcatch_ids: Sequence[str]) -> ObservationBuilder:
         """Append a subcatchment-groundwater (baseflow) collector.
 
         @param subcatch_ids: Subcatchment IDs whose groundwater outflow to

@@ -446,8 +446,7 @@ class MarketConfig:
                 for aid in getattr(r, side):
                     if aid not in agent_ids:
                         raise ValueError(
-                            f"trade_routes[{i}].{side} references unknown agent "
-                            f"{aid!r}"
+                            f"trade_routes[{i}].{side} references unknown agent {aid!r}"
                         )
             _require_unit(r.constraints.setting_min, f"trade_routes[{i}].constraints.setting_min")
             _require_unit(r.constraints.setting_max, f"trade_routes[{i}].constraints.setting_max")

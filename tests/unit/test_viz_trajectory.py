@@ -29,7 +29,6 @@ import unittest
 import numpy as np
 
 from openswmm_gymnasium.viz.trajectory import Trajectory, TrajectoryRun
-
 from tests.unit._base import BaseTestCase
 
 

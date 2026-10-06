@@ -81,26 +81,19 @@ class _AssetSpec:
 
         x_knots = [float(x) for x in raw.get("x_knots", [])]
         if len(x_knots) < 2:
-            raise ValueError(
-                f"asset {link_id!r}: x_knots must have at least 2 entries"
-            )
+            raise ValueError(f"asset {link_id!r}: x_knots must have at least 2 entries")
         if any(x_knots[i + 1] <= x_knots[i] for i in range(len(x_knots) - 1)):
-            raise ValueError(
-                f"asset {link_id!r}: x_knots must be strictly increasing"
-            )
+            raise ValueError(f"asset {link_id!r}: x_knots must be strictly increasing")
 
         y_low = float(raw.get("y_low", 0.0))
         y_high = float(raw.get("y_high", 1.0))
         if y_low > y_high:
-            raise ValueError(
-                f"asset {link_id!r}: y_low ({y_low}) must be <= y_high ({y_high})"
-            )
+            raise ValueError(f"asset {link_id!r}: y_low ({y_low}) must be <= y_high ({y_high})")
 
         monotonic = str(raw.get("monotonic", "none"))
         if monotonic not in MONOTONIC_MODES:
             raise ValueError(
-                f"asset {link_id!r}: monotonic must be one of {MONOTONIC_MODES}, "
-                f"got {monotonic!r}"
+                f"asset {link_id!r}: monotonic must be one of {MONOTONIC_MODES}, got {monotonic!r}"
             )
 
         y_init_raw = raw.get("y_init")
@@ -176,9 +169,7 @@ class ControlCurvePolicySpace:
         self.control_interval_steps = int(control_interval_steps)
 
         self.labels: list[str] = [
-            f"control_curve/{a.link_id}/y[{k}]"
-            for a in self.assets
-            for k in range(len(a.x_knots))
+            f"control_curve/{a.link_id}/y[{k}]" for a in self.assets for k in range(len(a.x_knots))
         ]
         self._low_v = np.concatenate(
             [np.full(len(a.x_knots), a.y_low, dtype=np.float32) for a in self.assets]
@@ -219,18 +210,14 @@ class ControlCurvePolicySpace:
     @property
     def space(self) -> spaces.Box:
         """The C{gymnasium.spaces.Box} over the flat breakpoint vector."""
-        return spaces.Box(
-            low=self._low_v, high=self._high_v, shape=(len(self),), dtype=np.float32
-        )
+        return spaces.Box(low=self._low_v, high=self._high_v, shape=(len(self),), dtype=np.float32)
 
     def default_vector(self) -> np.ndarray:
         """Return the neutral seed vector (each asset's C{y_init}).
 
         @rtype: L{numpy.ndarray}
         """
-        return np.concatenate(
-            [np.asarray(a.y_init, dtype=np.float32) for a in self.assets]
-        )
+        return np.concatenate([np.asarray(a.y_init, dtype=np.float32) for a in self.assets])
 
     def unflatten(self, vector: np.ndarray) -> ControlCurvePolicy:
         """Decode a flat decision *vector* into a L{ControlCurvePolicy}.

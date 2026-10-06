@@ -29,14 +29,13 @@ from __future__ import annotations
 
 import unittest
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm_gymnasium.rewards import (
     PumpEnergy,
     RewardTerm,
     StorageUnderUtilization,
     UncontrolledDischarge,
 )
+from tests.unit._base import BaseEngineTest
 
 _DT = 15.0  # matches the fixture ROUTING_STEP
 
@@ -46,7 +45,11 @@ class TestConstruction(unittest.TestCase):
         self.assertEqual(UncontrolledDischarge(["C1"]).name, "uncontrolled_discharge")
         self.assertEqual(StorageUnderUtilization(["J1"]).name, "storage_underutilization")
         self.assertEqual(PumpEnergy(["C1"]).name, "pump_energy")
-        for t in (UncontrolledDischarge(["C1"]), StorageUnderUtilization(["J1"]), PumpEnergy(["C1"])):
+        for t in (
+            UncontrolledDischarge(["C1"]),
+            StorageUnderUtilization(["J1"]),
+            PumpEnergy(["C1"]),
+        ):
             self.assertEqual(t.direction, "minimize")
 
     def test_empty_ids_rejected(self):
@@ -55,7 +58,11 @@ class TestConstruction(unittest.TestCase):
                 ctor([])
 
     def test_protocol_conformance(self):
-        for t in (UncontrolledDischarge(["C1"]), StorageUnderUtilization(["J1"]), PumpEnergy(["C1"])):
+        for t in (
+            UncontrolledDischarge(["C1"]),
+            StorageUnderUtilization(["J1"]),
+            PumpEnergy(["C1"]),
+        ):
             self.assertIsInstance(t, RewardTerm)
 
     def test_step_before_bind_raises(self):

@@ -130,10 +130,14 @@ class MarketPolicySpace:
             )
             if curve.type == "logistic":
                 params.append(
-                    PolicyParam(f"curve:{name}.steepness", ("curve", name, "steepness"), *b["steepness"])
+                    PolicyParam(
+                        f"curve:{name}.steepness", ("curve", name, "steepness"), *b["steepness"]
+                    )
                 )
             elif tune_full:
-                params.append(PolicyParam(f"curve:{name}.full", ("curve", name, "full"), *b["full"]))
+                params.append(
+                    PolicyParam(f"curve:{name}.full", ("curve", name, "full"), *b["full"])
+                )
 
         for route in base.trade_routes:
             link = route.structure_link_id
@@ -162,7 +166,9 @@ class MarketPolicySpace:
     @property
     def space(self) -> spaces.Box:
         """The C{gymnasium.spaces.Box} over the flat decision vector."""
-        return spaces.Box(low=self._low, high=self._high, shape=(len(self.params),), dtype=np.float32)
+        return spaces.Box(
+            low=self._low, high=self._high, shape=(len(self.params),), dtype=np.float32
+        )
 
     def __len__(self) -> int:
         return len(self.params)
@@ -171,9 +177,7 @@ class MarketPolicySpace:
 
     def flatten(self, config: MarketConfig) -> np.ndarray:
         """Read the tuned scalars from *config* into a vector (this layout)."""
-        return np.array(
-            [_get_address(config, p.address) for p in self.params], dtype=np.float32
-        )
+        return np.array([_get_address(config, p.address) for p in self.params], dtype=np.float32)
 
     def unflatten(self, vector: np.ndarray) -> MarketConfig:
         """Build a full C{MarketConfig} from a decision *vector*.
@@ -188,9 +192,7 @@ class MarketPolicySpace:
         """
         vec = np.asarray(vector, dtype=np.float64).ravel()
         if vec.shape[0] != len(self.params):
-            raise ValueError(
-                f"vector length {vec.shape[0]} != param count {len(self.params)}"
-            )
+            raise ValueError(f"vector length {vec.shape[0]} != param count {len(self.params)}")
         clipped = np.clip(vec, self._low.astype(np.float64), self._high.astype(np.float64))
         out = copy.deepcopy(self._base)
         for p, value in zip(self.params, clipped, strict=True):

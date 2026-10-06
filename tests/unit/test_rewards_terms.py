@@ -29,9 +29,8 @@ from __future__ import annotations
 
 import unittest
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm_gymnasium.rewards import FloodingVolume, RewardTerm
+from tests.unit._base import BaseEngineTest
 
 
 class TestConstruction(unittest.TestCase):

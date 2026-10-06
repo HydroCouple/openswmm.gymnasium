@@ -152,9 +152,7 @@ def _make_box_bounds(low: Sequence[float], high: Sequence[float]) -> spaces.Box:
         raise ValueError("bound vectors must be non-empty")
     if np.any(hi < lo):
         bad = int(np.argmax(hi < lo))
-        raise ValueError(
-            f"high[{bad}] ({hi[bad]}) must be >= low[{bad}] ({lo[bad]})"
-        )
+        raise ValueError(f"high[{bad}] ({hi[bad]}) must be >= low[{bad}] ({lo[bad]})")
     if not np.any(hi > lo):
         raise ValueError("at least one component must have high > low (searchable)")
     return spaces.Box(low=lo, high=hi, shape=lo.shape, dtype=np.float32)
@@ -296,32 +294,32 @@ class LinkLength:
 # all — its geometry lives in a transect or street table — so it cannot be
 # sized by this factory.
 _RESIZABLE_GEOM_SLOTS: dict[str, tuple[int, ...]] = {
-    "CIRCULAR": (0,),                 # diameter
-    "FILLED_CIRCULAR": (0, 1),        # diameter, filled depth
-    "RECT_CLOSED": (0, 1),            # height, width
-    "RECT_OPEN": (0, 1),              # height, width
-    "TRAPEZOIDAL": (0, 1),            # height, bottom width
-    "TRIANGULAR": (0, 1),             # height, top width
-    "PARABOLIC": (0, 1),              # height, top width
-    "POWER": (0, 1),                  # height, top width
-    "MODBASKETHANDLE": (0, 1, 2),     # height, bottom width, top radius
-    "EGGSHAPED": (0,),                # height
-    "HORSESHOE": (0,),                # height
-    "GOTHIC": (0,),                   # height
-    "CATENARY": (0,),                 # height
-    "SEMIELLIPTICAL": (0,),           # height
-    "BASKETHANDLE": (0,),             # height
-    "SEMICIRCULAR": (0,),             # height
-    "RECT_TRIANG": (0, 1, 2),         # height, top width, triangle height
-    "RECT_ROUND": (0, 1, 2),          # height, top width, bottom radius
-    "HORIZ_ELLIPSE": (0, 1),          # height, width
-    "VERT_ELLIPSE": (0, 1),           # height, width
-    "ARCH": (0, 1),                   # height, width
-    "CUSTOM": (0,),                   # height (the shape curve is an index)
-    "FORCE_MAIN": (0,),               # diameter
-    "IRREGULAR": (),                  # transect-defined — not sizable
-    "STREET_XSECT": (),               # street-table-defined — not sizable
-    "DUMMY": (),                      # no geometry
+    "CIRCULAR": (0,),  # diameter
+    "FILLED_CIRCULAR": (0, 1),  # diameter, filled depth
+    "RECT_CLOSED": (0, 1),  # height, width
+    "RECT_OPEN": (0, 1),  # height, width
+    "TRAPEZOIDAL": (0, 1),  # height, bottom width
+    "TRIANGULAR": (0, 1),  # height, top width
+    "PARABOLIC": (0, 1),  # height, top width
+    "POWER": (0, 1),  # height, top width
+    "MODBASKETHANDLE": (0, 1, 2),  # height, bottom width, top radius
+    "EGGSHAPED": (0,),  # height
+    "HORSESHOE": (0,),  # height
+    "GOTHIC": (0,),  # height
+    "CATENARY": (0,),  # height
+    "SEMIELLIPTICAL": (0,),  # height
+    "BASKETHANDLE": (0,),  # height
+    "SEMICIRCULAR": (0,),  # height
+    "RECT_TRIANG": (0, 1, 2),  # height, top width, triangle height
+    "RECT_ROUND": (0, 1, 2),  # height, top width, bottom radius
+    "HORIZ_ELLIPSE": (0, 1),  # height, width
+    "VERT_ELLIPSE": (0, 1),  # height, width
+    "ARCH": (0, 1),  # height, width
+    "CUSTOM": (0,),  # height (the shape curve is an index)
+    "FORCE_MAIN": (0,),  # diameter
+    "IRREGULAR": (),  # transect-defined — not sizable
+    "STREET_XSECT": (),  # street-table-defined — not sizable
+    "DUMMY": (),  # no geometry
 }
 
 
@@ -549,15 +547,20 @@ class SubcatchGWOutflowCoeff:
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._cached_params is None:
-            raise RuntimeError(
-                "SubcatchGWOutflowCoeff.bind() must be called before apply()"
-            )
+            raise RuntimeError("SubcatchGWOutflowCoeff.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for idx, params, v in zip(self._idxs, self._cached_params, clipped, strict=True):
             surf_elev, _a1, b1, a2, b2, a3, tw, hstar = params
             adapter.subcatchments.set_gw_params(
-                idx, float(surf_elev), float(v), float(b1),
-                float(a2), float(b2), float(a3), float(tw), float(hstar),
+                idx,
+                float(surf_elev),
+                float(v),
+                float(b1),
+                float(a2),
+                float(b2),
+                float(a3),
+                float(tw),
+                float(hstar),
             )
 
 
@@ -647,9 +650,7 @@ class StorageVolume:
             lo = np.asarray(low, dtype=np.float32)
             hi = np.asarray(high, dtype=np.float32)
             if lo.shape != (3,) or hi.shape != (3,):
-                raise ValueError(
-                    "coeffs mode requires length-3 (a, b, c) low/high sequences"
-                )
+                raise ValueError("coeffs mode requires length-3 (a, b, c) low/high sequences")
             # Node-major tiling: [a0,b0,c0, a1,b1,c1, ...].
             self._box = _make_box_bounds(np.tile(lo, n), np.tile(hi, n))
             self._coeff_low = lo
@@ -672,9 +673,7 @@ class StorageVolume:
         for nid, idx in zip(self._node_ids, self._idxs, strict=True):
             shape = adapter.nodes.get_storage_shape(idx)
             if shape == "FUNCTIONAL":
-                baseline.append(
-                    ("FUNCTIONAL", tuple(adapter.nodes.get_storage_functional(idx)))
-                )
+                baseline.append(("FUNCTIONAL", tuple(adapter.nodes.get_storage_functional(idx))))
             elif shape == "TABULAR":
                 if self._mode == "coeffs":
                     raise ValueError(
@@ -693,8 +692,7 @@ class StorageVolume:
                     )
                 seen_curves[curve_idx] = nid
                 points = [
-                    (float(x), float(y))
-                    for x, y in adapter.tables.get_curve_points(curve_idx)
+                    (float(x), float(y)) for x, y in adapter.tables.get_curve_points(curve_idx)
                 ]
                 baseline.append(("TABULAR", (curve_idx, points)))
             else:
@@ -710,9 +708,7 @@ class StorageVolume:
         arr = np.asarray(value, dtype=np.float32)
         if self._mode == "scalar":
             factors = np.clip(arr, self._low, self._high)
-            for idx, (shape, base), f in zip(
-                self._idxs, self._baseline, factors, strict=True
-            ):
+            for idx, (shape, base), f in zip(self._idxs, self._baseline, factors, strict=True):
                 if shape == "FUNCTIONAL":
                     a0, b0, c0 = base  # type: ignore[misc]
                     adapter.nodes.set_storage_functional(
@@ -796,8 +792,7 @@ class LIDPlacement:
         self._area_high = float(area_high)
         if not (self._area_high > self._area_low):
             raise ValueError(
-                f"area_high ({area_high}) must be strictly greater than "
-                f"area_low ({area_low})"
+                f"area_high ({area_high}) must be strictly greater than area_low ({area_low})"
             )
         self._number = int(number)
         self._width = float(width)
@@ -897,9 +892,7 @@ class RDIIUnitHydrograph:
         """
         if not targets:
             raise ValueError("RDIIUnitHydrograph requires at least one target")
-        self._targets = [
-            (str(uh), int(month), int(response)) for (uh, month, response) in targets
-        ]
+        self._targets = [(str(uh), int(month), int(response)) for (uh, month, response) in targets]
         self._r_low = float(r_low)
         self._r_high = float(r_high)
         self._include_ia = bool(include_ia)
@@ -956,9 +949,7 @@ class RDIIUnitHydrograph:
         if self._tk is None:
             raise RuntimeError("RDIIUnitHydrograph.bind() must be called before apply()")
         rows = np.asarray(value, dtype=np.float32).reshape(len(self._targets), self._stride)
-        for (uh, month, response), (t, k), row in zip(
-            self._targets, self._tk, rows, strict=True
-        ):
+        for (uh, month, response), (t, k), row in zip(self._targets, self._tk, rows, strict=True):
             r = float(np.clip(row[0], self._r_low, self._r_high))
             adapter.inflows.set_hydrograph_rtk(uh, month, response, r, float(t), float(k))
             if self._include_ia:
@@ -1036,9 +1027,7 @@ class ReactionCoefficientValue:
             mis-shaped / not searchable.
         """
         if not coefficient_ids:
-            raise ValueError(
-                "ReactionCoefficientValue requires at least one coefficient_id"
-            )
+            raise ValueError("ReactionCoefficientValue requires at least one coefficient_id")
         self._coefficient_ids = [str(c) for c in coefficient_ids]
         n = len(self._coefficient_ids)
 
@@ -1087,9 +1076,7 @@ class ReactionCoefficientValue:
                 f"{sorted(declared)!r}"
             )
         constants = [
-            c
-            for c in self._coefficient_ids
-            if not adapter.reactions.is_coefficient_param(c)
+            c for c in self._coefficient_ids if not adapter.reactions.is_coefficient_param(c)
         ]
         if constants:
             raise ValueError(
@@ -1103,9 +1090,7 @@ class ReactionCoefficientValue:
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if not self._bound:
-            raise RuntimeError(
-                "ReactionCoefficientValue.bind() must be called before apply()"
-            )
+            raise RuntimeError("ReactionCoefficientValue.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for cid, v in zip(self._coefficient_ids, clipped, strict=True):
             adapter.reactions.set_coefficient(cid, float(v))
@@ -1221,9 +1206,7 @@ class HeatSourceTemperature:
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if not self._bound:
-            raise RuntimeError(
-                "HeatSourceTemperature.bind() must be called before apply()"
-            )
+            raise RuntimeError("HeatSourceTemperature.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for source, v in zip(self._sources, clipped, strict=True):
             adapter.heat.set_source_temp(source, float(v))

@@ -77,9 +77,7 @@ class ScheduleController:
     def reset(self) -> None:
         self._k = 0
 
-    def compute_settings(
-        self, metrics: Mapping[str, float], dt_seconds: float
-    ) -> dict[str, float]:
+    def compute_settings(self, metrics: Mapping[str, float], dt_seconds: float) -> dict[str, float]:
         """Return each structure's setting for the current control step.
 
         C{metrics} and C{dt_seconds} are ignored (open-loop). The final

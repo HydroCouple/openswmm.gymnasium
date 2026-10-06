@@ -423,9 +423,7 @@ class TestEngineClosedLoop(BaseTestCase):
             self.assertGreater(base_val, 0.0, f"{name} baseline must be non-trivial")
             self.assertIn(name, neutral)
             rel = abs(neutral[name] - base_val) / abs(base_val)
-            self.assertLessEqual(
-                rel, 0.005, f"{name}: neutral={neutral[name]} baseline={base_val}"
-            )
+            self.assertLessEqual(rel, 0.005, f"{name}: neutral={neutral[name]} baseline={base_val}")
 
     def test_retention_curve_reduces_discharge(self):
         env = self._env()  # nonincreasing

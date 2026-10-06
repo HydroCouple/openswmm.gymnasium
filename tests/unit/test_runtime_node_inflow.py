@@ -30,9 +30,8 @@ import unittest
 
 import numpy as np
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm_gymnasium.spaces import NodeLateralInflow
+from tests.unit._base import BaseEngineTest
 
 
 class TestConstruction(unittest.TestCase):

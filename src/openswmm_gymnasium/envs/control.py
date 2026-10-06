@@ -124,14 +124,15 @@ class SwmmControlEnv(gym.Env):
             market_config.validate()
             self._base_config = market_config
             self.policy_space = (
-                policy_space if policy_space is not None
+                policy_space
+                if policy_space is not None
                 else MarketPolicySpace.from_config(market_config)
             )
-            self._controller_factory: Callable[[Any], Controller] = (
-                lambda spec: MarketController(spec)
+            self._controller_factory: Callable[[Any], Controller] = lambda spec: MarketController(
+                spec
             )
-            self._metric_reader_factory: Callable[[Any], Any] | None = (
-                lambda spec: MarketMetricReader(spec)
+            self._metric_reader_factory: Callable[[Any], Any] | None = lambda spec: (
+                MarketMetricReader(spec)
             )
             default_interval: float | None = market_config.meta.control_interval_seconds
         else:
@@ -147,9 +148,7 @@ class SwmmControlEnv(gym.Env):
             default_interval = None
 
         if control_interval_seconds is None and default_interval is None:
-            raise ValueError(
-                "control_interval_seconds is required when market_config is not given"
-            )
+            raise ValueError("control_interval_seconds is required when market_config is not given")
 
         self._inp_path = str(inp_path)
         self._rpt_path = None if rpt_path is None else str(rpt_path)
@@ -209,9 +208,7 @@ class SwmmControlEnv(gym.Env):
         if metric_reader is not None:
             metric_reader.bind(adapter)
         controller.reset()
-        structure_idxs = {
-            sid: adapter.links.get_index(sid) for sid in controller.structure_ids
-        }
+        structure_idxs = {sid: adapter.links.get_index(sid) for sid in controller.structure_ids}
         for term in self._reward_terms:
             term.bind(adapter)
             term.reset()
@@ -223,7 +220,9 @@ class SwmmControlEnv(gym.Env):
         n_control_updates = 0
 
         # Apply an initial control action before the first routing step.
-        self._apply_control(adapter, controller, metric_reader, structure_idxs, self._control_interval)
+        self._apply_control(
+            adapter, controller, metric_reader, structure_idxs, self._control_interval
+        )
         n_control_updates += 1
 
         while adapter.is_running:
@@ -266,7 +265,13 @@ class SwmmControlEnv(gym.Env):
         info: dict[str, Any] = {
             "phase": "policy_evaluated",
             "reward_components": components,
-            "policy": dict(zip(self.policy_space.labels, [float(x) for x in np.asarray(action).ravel()])),
+            "policy": dict(
+                zip(
+                    self.policy_space.labels,
+                    [float(x) for x in np.asarray(action).ravel()],
+                    strict=True,
+                )
+            ),
             "n_control_updates": n_control_updates,
         }
         return final_obs, reward, True, False, info

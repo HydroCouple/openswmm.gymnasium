@@ -31,10 +31,9 @@ model). B{No engine mocks.}
 
 from __future__ import annotations
 
-from tests.unit._base import BaseEngineTest
-
 from openswmm_gymnasium.envs import SwmmRTCEnv
 from openswmm_gymnasium.observations import ObservationBuilder
+from tests.unit._base import BaseEngineTest
 
 
 def _make_minimal_env(inp_path):

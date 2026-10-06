@@ -41,7 +41,6 @@ from openswmm_gymnasium.spaces.design import (
     StorageVolume,
 )
 
-
 # -----------------------------------------------------------------------------
 # Mock adapter recording engine setter calls
 # -----------------------------------------------------------------------------
@@ -98,9 +97,7 @@ class _Tables:
         return self._curves[idx]
 
     def set_curve_points(self, idx, points):
-        self._calls.append(
-            ("curve", idx, [(round(x, 4), round(y, 4)) for x, y in points])
-        )
+        self._calls.append(("curve", idx, [(round(x, 4), round(y, 4)) for x, y in points]))
 
 
 class _Subs:
@@ -208,9 +205,7 @@ class TestStorageVolume(unittest.TestCase):
         f.bind(a)
         f.apply(a, np.array([2.0], dtype=np.float32))
         # Depths untouched; areas doubled.
-        self.assertEqual(
-            a.calls, [("curve", 7, [(0.0, 2000.0), (5.0, 4000.0)])]
-        )
+        self.assertEqual(a.calls, [("curve", 7, [(0.0, 2000.0), (5.0, 4000.0)])])
 
     def test_scalar_mixes_functional_and_tabular_nodes(self):
         f = StorageVolume(["T1", "T3"], low=0.5, high=3.0, mode="scalar")
@@ -233,9 +228,7 @@ class TestStorageVolume(unittest.TestCase):
         self.assertEqual(a.calls, [("curve", 7, [(0.0, 3000.0), (5.0, 6000.0)])])
 
     def test_coeffs_mode_rejects_a_tabular_node(self):
-        f = StorageVolume(
-            ["T3"], low=[100.0, 0.0, 0.0], high=[9000.0, 2.0, 500.0], mode="coeffs"
-        )
+        f = StorageVolume(["T3"], low=[100.0, 0.0, 0.0], high=[9000.0, 2.0, 500.0], mode="coeffs")
         with self.assertRaisesRegex(ValueError, "TABULAR"):
             f.bind(MockAdapter())
 
@@ -285,8 +278,12 @@ class TestLIDPlacement(unittest.TestCase):
 
     def test_apply_selects_type_and_sizes_area(self):
         f = LIDPlacement(
-            ["S1", "S2"], ["BIO", "PAVE", "ROOF"], area_low=100.0, area_high=2000.0,
-            number=2, width=5.0,
+            ["S1", "S2"],
+            ["BIO", "PAVE", "ROOF"],
+            area_low=100.0,
+            area_high=2000.0,
+            number=2,
+            width=5.0,
         )
         a = MockAdapter()
         f.bind(a)
@@ -338,8 +335,11 @@ class TestRDIIUnitHydrograph(unittest.TestCase):
     def test_r_plus_ia_space_and_apply(self):
         f = RDIIUnitHydrograph(
             [("SanSewer", -1, 0), ("SanSewer", -1, 1)],
-            r_low=0.0, r_high=0.5,
-            include_ia=True, ia_low=(0.0, 0.0, 0.0), ia_high=(0.5, 2.0, 0.2),
+            r_low=0.0,
+            r_high=0.5,
+            include_ia=True,
+            ia_low=(0.0, 0.0, 0.0),
+            ia_high=(0.5, 2.0, 0.2),
         )
         self.assertEqual(f.space.shape, (8,))
         a = MockAdapter()
@@ -397,9 +397,7 @@ class TestStorageVolumeEpisode(unittest.TestCase):
 
         return SwmmCIPEnv(
             b01_twin_tank.SCENARIO_INP,
-            design_factories=[
-                StorageVolume(["T1", "T2"], low=low, high=high, mode=mode)
-            ],
+            design_factories=[StorageVolume(["T1", "T2"], low=low, high=high, mode=mode)],
             observation_builder=ObservationBuilder().add_node_depths(["T1", "T2"]),
         )
 

@@ -80,9 +80,7 @@ class _FakeLinks:
         return self._section(idx)[3]
 
     def set_xsect(self, idx, shape, g1, g2, g3, g4) -> None:
-        self.applied.append(
-            (idx, shape, round(g1, 6), round(g2, 6), round(g3, 6), round(g4, 6))
-        )
+        self.applied.append((idx, shape, round(g1, 6), round(g2, 6), round(g3, 6), round(g4, 6)))
 
     def get_depth(self, idx: int) -> float:
         return self.depth[idx]

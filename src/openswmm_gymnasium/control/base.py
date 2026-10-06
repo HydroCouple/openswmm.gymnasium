@@ -58,9 +58,7 @@ class Controller(Protocol):
         """Clear all cross-step state at the start of an episode."""
         ...
 
-    def compute_settings(
-        self, metrics: Mapping[str, float], dt_seconds: float
-    ) -> dict[str, float]:
+    def compute_settings(self, metrics: Mapping[str, float], dt_seconds: float) -> dict[str, float]:
         """Return C{{structure_link_id: setting in [0,1]}} for one control step.
 
         @param metrics: C{{agent_id: stress_metric in [0,1]}} for the current

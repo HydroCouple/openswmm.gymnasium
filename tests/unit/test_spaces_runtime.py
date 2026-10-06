@@ -28,8 +28,8 @@ import unittest
 import numpy as np
 from gymnasium import spaces
 
-from tests.unit._base import BaseEngineTest
 from openswmm_gymnasium.spaces.runtime import OrificeSetting
+from tests.unit._base import BaseEngineTest
 
 
 class TestConstruction(unittest.TestCase):

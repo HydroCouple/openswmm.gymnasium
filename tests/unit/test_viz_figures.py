@@ -43,7 +43,6 @@ from openswmm_gymnasium.viz.figures import (
     reward_curves,
     trajectory_replay,
 )
-
 from tests.unit._base import BaseTestCase
 
 

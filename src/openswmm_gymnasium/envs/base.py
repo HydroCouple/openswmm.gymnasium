@@ -190,8 +190,7 @@ class SwmmRTCEnv(gym.Env):
             unknown = set(options) - {"engine_options"}
             if unknown:
                 raise ValueError(
-                    f"Unsupported reset options: {sorted(unknown)}; "
-                    f"supported: ['engine_options']"
+                    f"Unsupported reset options: {sorted(unknown)}; supported: ['engine_options']"
                 )
             engine_options = dict(options.get("engine_options") or {})
 

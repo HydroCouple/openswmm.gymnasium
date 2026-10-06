@@ -103,9 +103,7 @@ class TestEpsilon(unittest.TestCase):
         self.assertAlmostEqual(epsilon_indicator(a, b), 0.25, places=6)
 
     def test_empty_returns_inf(self):
-        self.assertEqual(
-            epsilon_indicator(np.empty((0, 2)), np.array([[0.0]])), float("inf")
-        )
+        self.assertEqual(epsilon_indicator(np.empty((0, 2)), np.array([[0.0]])), float("inf"))
 
 
 # ---------------------------------------------------------------------------

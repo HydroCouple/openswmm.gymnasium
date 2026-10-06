@@ -36,7 +36,6 @@ from gymnasium import spaces
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.observations.builder import _ClockCollector
 
-
 _SIZE_CASES = [
     ("add_node_heads", ["J1", "J2"], 2),
     ("add_node_inflows", ["J1"], 1),

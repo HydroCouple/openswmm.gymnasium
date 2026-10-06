@@ -31,7 +31,6 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
-from tests.unit._base import BaseTestCase
 
 from openswmm_gymnasium.benchmarks.b01_twin_tank import SCENARIO_INP
 from openswmm_gymnasium.control import Controller, ScheduleController
@@ -39,6 +38,7 @@ from openswmm_gymnasium.envs import SwmmControlEnv
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import StorageUnderUtilization, UncontrolledDischarge
 from openswmm_gymnasium.spaces import SchedulePolicySpace
+from tests.unit._base import BaseTestCase
 
 _N_POINTS = 4
 

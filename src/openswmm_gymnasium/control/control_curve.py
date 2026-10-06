@@ -122,9 +122,7 @@ class ControlCurvePolicy:
 # =============================================================================
 
 
-def pwl_interp(
-    x: float, x_knots: Sequence[float], y_values: Sequence[float]
-) -> float:
+def pwl_interp(x: float, x_knots: Sequence[float], y_values: Sequence[float]) -> float:
     """Piecewise-linear interpolation with flat extrapolation, clamped to [0,1].
 
     C{x} is first clamped to C{[x_knots[0], x_knots[-1]]} (flat extrapolation
@@ -181,9 +179,7 @@ def project_monotonic(y_values: Sequence[float], mode: str) -> tuple[float, ...]
     @raise ValueError: If C{mode} is not a valid monotonicity mode.
     """
     if mode not in MONOTONIC_MODES:
-        raise ValueError(
-            f"monotonic must be one of {MONOTONIC_MODES}, got {mode!r}"
-        )
+        raise ValueError(f"monotonic must be one of {MONOTONIC_MODES}, got {mode!r}")
     vals = [float(v) for v in y_values]
     if mode == "none" or not vals:
         return tuple(vals)
@@ -315,9 +311,7 @@ class ControlCurveController:
         self._prev = {}
         self._call = 0
 
-    def compute_settings(
-        self, metrics: Mapping[str, float], dt_seconds: float
-    ) -> dict[str, float]:
+    def compute_settings(self, metrics: Mapping[str, float], dt_seconds: float) -> dict[str, float]:
         """Return C{{link_id: setting}} for the current control step.
 
         @param metrics: C{{link_id: x}} from L{ControlCurveMetricReader.read}.

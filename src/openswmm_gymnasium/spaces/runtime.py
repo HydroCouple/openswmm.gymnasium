@@ -393,16 +393,12 @@ class HeatSourceTemperatureSetpoint:
             range extends beyond the engine's C{[-50, 100]}.
         """
         if not sources:
-            raise ValueError(
-                "HeatSourceTemperatureSetpoint requires at least one source"
-            )
+            raise ValueError("HeatSourceTemperatureSetpoint requires at least one source")
         self._sources: list[str] = [str(s).upper() for s in sources]
         self._low = float(low)
         self._high = float(high)
         if not (self._high > self._low):
-            raise ValueError(
-                f"high ({self._high}) must be strictly greater than low ({self._low})"
-            )
+            raise ValueError(f"high ({self._high}) must be strictly greater than low ({self._low})")
         if self._low < _HEAT_TEMP_MIN_C or self._high > _HEAT_TEMP_MAX_C:
             raise ValueError(
                 f"HeatSourceTemperatureSetpoint bounds [{self._low}, "
@@ -467,9 +463,7 @@ class HeatSourceTemperatureSetpoint:
         @raise RuntimeError: If L{bind} was not called first.
         """
         if not self._bound:
-            raise RuntimeError(
-                "HeatSourceTemperatureSetpoint.bind() must be called before apply()"
-            )
+            raise RuntimeError("HeatSourceTemperatureSetpoint.bind() must be called before apply()")
         # Defensive clip — agents may sample outside the declared bounds
         # under numerical noise. Here the clip does more than tidy up: the
         # engine REFUSES a temperature outside [-50, 100] instead of

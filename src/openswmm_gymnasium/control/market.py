@@ -208,9 +208,7 @@ class MarketController:
         self._t = 0.0
         self.last_detail = {}
 
-    def compute_settings(
-        self, metrics: Mapping[str, float], dt_seconds: float
-    ) -> dict[str, float]:
+    def compute_settings(self, metrics: Mapping[str, float], dt_seconds: float) -> dict[str, float]:
         # Price every agent once per step from its curve.
         prices = {
             aid: price_from_curve(float(metrics.get(aid, 0.0)), curve)
@@ -242,9 +240,7 @@ class MarketController:
 
     # -- Cycle-constraint enforcement ----------------------------------------
 
-    def _apply_cycle_limits(
-        self, route: TradeRoute, st: _RouteState, setting: float
-    ) -> float:
+    def _apply_cycle_limits(self, route: TradeRoute, st: _RouteState, setting: float) -> float:
         """Gate on/off transitions by min dwell time and start-rate limits.
 
         With neither C{min_cycle_seconds} nor C{max_starts_per_hour} set this is
@@ -261,7 +257,10 @@ class MarketController:
             if c.max_starts_per_hour is not None:
                 st.starts = [s for s in st.starts if self._t - s < 3600.0]
             blocked = False
-            if c.min_cycle_seconds is not None and (self._t - st.last_switch_t) < c.min_cycle_seconds:
+            if (
+                c.min_cycle_seconds is not None
+                and (self._t - st.last_switch_t) < c.min_cycle_seconds
+            ):
                 blocked = True
             if (
                 desired_on
