@@ -148,13 +148,20 @@ class TestCellFieldCollector(BaseEngine2DTest):
 
     def test_missing_and_bad_arguments_are_named(self) -> None:
         with self.assertRaisesRegex(ValueError, "variable"):
-            ObservationBuilder().add_cell_field("surface2d.groundwater.cells", [0])
+            ObservationBuilder().add_cell_field("groundwater2d.cells", [0])
         with self.assertRaisesRegex(ValueError, "NOT_A_VARIABLE"):
             ObservationBuilder().add_cell_field(
-                "surface2d.groundwater.cells", [0], variable="NOT_A_VARIABLE"
+                "groundwater2d.cells", [0], variable="NOT_A_VARIABLE"
             )
         with self.assertRaises(ValueError):
             ObservationBuilder().add_cell_field("surface2d.get_depths", [])
+
+    def test_shared_view_spelling_names_the_same_field(self) -> None:
+        # solver.surface2d.groundwater is the groundwater2d service (catalog view alias).
+        builder = ObservationBuilder().add_cell_field(
+            "surface2d.groundwater.cells", [0], variable="HG"
+        )
+        self.assertIsInstance(builder, ObservationBuilder)
 
     def test_bind_rejects_out_of_range_cells(self) -> None:
         adapter = self.make_adapter(inp=self.minimal_2d_inp)

@@ -133,7 +133,7 @@ obs = (
     .add_cell_field("surface2d.get_depths", [0, 5, 9])           # water depth
     .add_cell_field("surface2d.get_rainfall", [0, 5, 9])         # rain rate, m/s
     .add_cell_field("surface2d.infiltration.rate", [0, 5, 9])    # infiltration
-    .add_cell_field("surface2d.groundwater.cells", [0, 5, 9], variable="HG")
+    .add_cell_field("groundwater2d.cells", [0, 5, 9], variable="HG")
     .add_cell_field("surface2d.quality.buildup", [0, 5, 9], species="TSS")
 )
 ```
@@ -200,7 +200,7 @@ take a shape other than a plain ID list:
     "fields": {"link.stats.max_filling": ["C1"], "link.stats.slot_share": ["C1"]},
     "cell_fields": [
       {"path": "surface2d.get_depths", "cells": [0, 5]},
-      {"path": "surface2d.groundwater.cells", "cells": [0, 5], "args": {"variable": "HG"}}
+      {"path": "groundwater2d.cells", "cells": [0, 5], "args": {"variable": "HG"}}
     ],
     "include_clock": true
   }

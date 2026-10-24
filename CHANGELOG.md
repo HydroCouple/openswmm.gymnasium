@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ObservationBuilder.add_cell_field(path, cells, **args)`** observes a
   per-cell 2D quantity at chosen mesh cells: any 2D-service method that returns
   one value per cell (`"surface2d.get_depths"`, `"surface2d.infiltration.rate"`,
-  `"surface2d.groundwater.cells"` with `variable="HG"`,
+  `"groundwater2d.cells"` with `variable="HG"`,
   `"surface2d.quality.buildup"` with `species="TSS"`) or takes the cell index
   (`"surface2d.get_rainfall"`). `SolverAdapter.call(path, ...)` invokes any
   catalog method.
@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cell_fields`.
 
 ### Changed
+
+- **Requires an engine catalog of revision 2 or later** (openswmm
+  6.0.0a4.dev2 with the catalog compatibility contract);
+  `require_engine_capabilities` names the upgrade otherwise. The 2D
+  groundwater service is spelled by its canonical path, `groundwater2d`
+  (`surface2d.groundwater` still resolves to it).
 
 - **Action spaces carry only their non-empty halves.** Gymnasium's `check_env`
   rejects an empty `Dict`, so an RTC env's action space is

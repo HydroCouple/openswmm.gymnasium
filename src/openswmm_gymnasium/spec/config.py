@@ -171,7 +171,7 @@ class CellFieldSpec(BaseModel):
 
     @ivar path: Catalog method of a 2D service (C{"surface2d.get_depths"},
         C{"surface2d.get_rainfall"}, C{"surface2d.infiltration.rate"},
-        C{"surface2d.groundwater.cells"}, C{"surface2d.quality.buildup"}).
+        C{"groundwater2d.cells"}, C{"surface2d.quality.buildup"}).
     @ivar cells: Mesh cell indices (0-based).
     @ivar args: Extra arguments for that method, e.g. C{{"variable": "HG"}}
         or C{{"species": "TSS"}}; enum arguments are given by name.

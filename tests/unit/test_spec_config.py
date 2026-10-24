@@ -413,9 +413,7 @@ def test_build_env_applies_wrappers(gym_inp_path, output_dir):
 
 def test_cell_fields_alone_are_a_feature_and_round_trip():
     spec = ObservationSpec(
-        cell_fields=[
-            {"path": "surface2d.groundwater.cells", "cells": [0, 1], "args": {"variable": "HG"}}
-        ]
+        cell_fields=[{"path": "groundwater2d.cells", "cells": [0, 1], "args": {"variable": "HG"}}]
     )
     assert not spec.is_empty()
     assert ObservationSpec.model_validate_json(spec.model_dump_json()) == spec

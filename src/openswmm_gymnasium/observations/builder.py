@@ -289,7 +289,7 @@ class _CellFieldCollector:
 
     C{path} is a catalog method that either returns an array with one value
     per cell (C{"surface2d.get_depths"}, C{"surface2d.infiltration.rate"},
-    C{"surface2d.groundwater.cells"} with C{variable="HG"},
+    C{"groundwater2d.cells"} with C{variable="HG"},
     C{"surface2d.quality.buildup"} with C{species="TSS"}) -- read once per
     step and gathered -- or takes the cell index first and returns a float
     (C{"surface2d.get_rainfall"}) and is called per cell. Vertex quantities
@@ -309,7 +309,7 @@ class _CellFieldCollector:
         bulk = "NDArray" in returns and required[:1] not in (["idx"], ["cell"])
         if (
             entry["form"] != "method"
-            or not path.startswith("surface2d")
+            or not _catalog.canonical(path).startswith(("surface2d", "groundwater2d"))
             or "vertex" in path
             or not (self._per_cell or bulk)
         ):
@@ -696,7 +696,7 @@ class ObservationBuilder:
         C{path} is a catalog method of a 2D service returning one value per
         cell, or taking the cell index: C{"surface2d.get_depths"},
         C{"surface2d.get_rainfall"}, C{"surface2d.infiltration.rate"},
-        C{"surface2d.groundwater.cells"} (C{variable="HG"} for heads),
+        C{"groundwater2d.cells"} (C{variable="HG"} for heads),
         C{"surface2d.quality.buildup"} (C{species="TSS"}). Extra keyword
         arguments go to that method; enum arguments may be given by name.
 

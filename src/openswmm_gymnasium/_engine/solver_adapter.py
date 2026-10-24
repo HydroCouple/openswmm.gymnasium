@@ -187,6 +187,10 @@ def _reject_legacy(solver: object) -> None:
 # which also check that the open *model* enables the module — something no
 # catalog can know.
 
+#: Engine catalog revision this package is written against
+#: (L{openswmm.engine.catalog.revision}); older catalogs lack its paths.
+MIN_CATALOG_REVISION = 2
+
 #: Solver members the adapter itself calls, needed by every env.
 CORE_REQUIREMENTS: tuple[str, ...] = (
     "flow_units",
@@ -258,9 +262,16 @@ def require_engine_capabilities(module=None, paths=CORE_REQUIREMENTS) -> None:
     @param paths: Catalog paths; defaults to L{CORE_REQUIREMENTS}.
     @raise EngineCapabilityError: If any required symbol is absent.
     """
+    version = getattr(module if module is not None else _engine, "__version__", "unknown")
+    revision = getattr(_catalog, "revision", lambda: 1)()
+    if module is None and revision < MIN_CATALOG_REVISION:
+        raise EngineCapabilityError(
+            f"openswmm.gymnasium needs engine catalog revision {MIN_CATALOG_REVISION} or newer; "
+            f"the installed openswmm.engine (version {version}) has revision {revision}. "
+            "Upgrade or rebuild the openswmm package."
+        )
     missing = _missing_engine_capabilities(module, paths)
     if missing:
-        version = getattr(module if module is not None else _engine, "__version__", "unknown")
         raise EngineCapabilityError(
             "The installed openswmm.engine (version "
             f"{version}) is missing "
