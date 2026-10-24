@@ -35,7 +35,7 @@ engine is a required dependency rather than an opt-in extra.
   - Per-component tests; tiny in-tree fixtures
 * - Integration
   - `tests/integration/`
-  - End-to-end via `gymnasium.utils.env_checker.check_env`
+  - Whole episodes across envs: vector-env determinism, trajectory record and replay
 * - Regression
   - `tests/regression/`
   - Golden-trajectory JSONL replay
@@ -113,11 +113,19 @@ adapter; integration tests cover the live-engine surface).
 
 ## Vector-env tests
 
-`tests/integration/test_vector_env.py` runs both
-`gymnasium.vector.SyncVectorEnv` (threads) and `AsyncVectorEnv`
-(processes) over the same env IDs with identical seeds and asserts the
-trajectories match. This directly verifies the §2.3 thread-isolation
-guarantee.
+`tests/integration/test_vector_env.py` runs two b01 TwinTank envs as a
+`gymnasium.vector.SyncVectorEnv` (in process) and as an `AsyncVectorEnv`
+(`spawn` worker processes), each env with its own seed and action
+sequence, and asserts every column matches a single env stepped serially.
+This directly verifies the §2.3 engine-handle isolation guarantee.
+
+`tests/integration/test_trajectory_replay.py` records a full episode with
+`RecordTrajectory`, reads it back with `viz.trajectory.Trajectory`, and
+replays its actions in a fresh env, asserting identical observations and
+rewards. The episode file is left in `tests/_output/integration/trajectory/`.
+
+Run them with `python -m pytest tests/integration -v`; CI runs them with
+the unit tier whenever the engine imports.
 
 
 ## Current binding contract checks

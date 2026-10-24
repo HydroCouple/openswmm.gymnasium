@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logs every evaluation to `evaluations.jsonl` and the Pareto front to
   `result.json`, reports progress and honours cancellation. Serial and
   parallel runs log identical evaluations.
+- **Integration tests** (`tests/integration/`, run in CI with the unit tier):
+  Sync and Async vector envs reproduce serial runs exactly, and a recorded
+  trajectory reads back and replays to identical observations and rewards.
 
 ### Changed
 
