@@ -31,16 +31,16 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from openswmm_gymnasium._engine import solver_adapter
-from openswmm_gymnasium._engine.solver_adapter import (
+from openswmm_gymnasium._engine import requirements
+from openswmm_gymnasium._engine.requirements import (
     CORE_REQUIREMENTS,
     EngineCapabilityError,
-    SolverAdapter,
     _missing_engine_capabilities,
     optional_module,
     require_engine_capabilities,
     require_for,
 )
+from openswmm_gymnasium._engine.solver_adapter import SolverAdapter
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, TSSLoad
 from openswmm_gymnasium.spaces import LinkRoughness, StorageVolume
@@ -181,9 +181,9 @@ class TestOptionalModuleProbes(unittest.TestCase):
         return adapter
 
     def _patch_engine(self, module) -> None:
-        original = solver_adapter._engine
-        solver_adapter._engine = module
-        self.addCleanup(setattr, solver_adapter, "_engine", original)
+        original = requirements._engine
+        requirements._engine = module
+        self.addCleanup(setattr, requirements, "_engine", original)
 
     def test_heat_guard_names_the_missing_module(self):
         self._patch_engine(_complete_engine())

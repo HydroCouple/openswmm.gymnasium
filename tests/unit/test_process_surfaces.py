@@ -41,7 +41,7 @@ hands out, so it needs no open model. The two-tier guards themselves need
 a real solver and live in L{TestOptionalSurfaceGuards}, which is skipped
 when the installed engine lacks the optional modules — the first use of
 that idiom in this suite, mirroring the build-tier probes in
-C{solver_adapter.optional_module}.
+C{requirements.optional_module}.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin

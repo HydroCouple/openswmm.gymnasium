@@ -30,15 +30,17 @@ directly from C{openswmm.engine}. Plan §2 / §2.3.
 
 from openswmm.engine.catalog import unit_label
 
-from openswmm_gymnasium._engine.solver_adapter import (
+from openswmm_gymnasium._engine.requirements import (
     EngineCapabilityError,
+    optional_module,
+    require_engine_capabilities,
+    require_for,
+)
+from openswmm_gymnasium._engine.solver_adapter import (
     LegacySolverRejectedError,
     SolverAdapter,
     element_kind,
     field_entry,
-    optional_module,
-    require_engine_capabilities,
-    require_for,
 )
 
 __all__ = [

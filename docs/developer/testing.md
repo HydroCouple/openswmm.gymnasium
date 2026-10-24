@@ -81,7 +81,7 @@ asserting a collector took the bulk read path rather than N scalar reads.
 
 Some modules are build-optional (2D, heat, water age, reactions). A test
 class that needs one guards itself at class level, mirroring the
-accessor-level probes in `solver_adapter.py`:
+probes in `_engine/requirements.py`:
 
 ```python
 @unittest.skipUnless(
