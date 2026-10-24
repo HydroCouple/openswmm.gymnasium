@@ -146,6 +146,235 @@ the mesh are refused with the reason. Groundwater and surface-quality reads
 also need the model to configure those services; binding fails with the
 engine's lifecycle error when it does not.
 
+(custom-collectors)=
+## Custom collectors
+
+Some engine surfaces are neither one number per element (`add_field`) nor one
+per mesh cell (`add_cell_field`): flow tracing, coupling receipts, the 2D
+groundwater ledgers and LID node layers. Observe them with a collector of your
+own: any object with
+
+* `requires`, the catalog paths it reads (envs check them when they are built);
+* `size`, the number of features;
+* `units(unit_system, flow_units)`, one label per feature;
+* `bind(adapter)`, called at every `reset()` after the run has started;
+* `collect(adapter)`, which returns `size` float32 values.
+
+Read with `adapter.call(path, ...)` for catalog methods and the engine API on
+`adapter.solver` otherwise, and reach optional modules through
+`optional_module(adapter, name)`. Add the collector with
+`ObservationBuilder.add_collector(collector)`:
+
+```python
+import numpy as np
+from openswmm_gymnasium._engine import optional_module
+from openswmm_gymnasium.observations import ObservationBuilder
+```
+
+Custom collectors cannot be named from an `EnvConfig`. The examples below are
+tested in `tests/unit/test_observations_surfaces.py`.
+
+### LID node layers
+
+`infrastructure.lids.node_profile(node)` lists the runtime sublayers of a
+storage-node LID (`[LID_NODES]`). Each has its one-based authored `layer`, its
+`bottom` and `top` heights above the invert, and its volumetric `moisture`.
+`get_layers(control)` returns the authored stack, which is configuration.
+
+```python
+class LidLayerMoisture:
+    requires = ("infrastructure.lids.node_assignment", "infrastructure.lids.node_profile")
+
+    def __init__(self, node, layers):
+        self.node, self.layers, self.size = node, list(layers), len(layers)
+
+    def units(self, unit_system, flow_units):
+        return ["fraction"] * self.size
+
+    def bind(self, adapter):
+        if adapter.call("infrastructure.lids.node_assignment", self.node) is None:
+            raise ValueError(f"{self.node!r} has no LID control")
+
+    def collect(self, adapter):
+        rows = adapter.call("infrastructure.lids.node_profile", self.node)
+        out = []
+        for k in self.layers:  # thickness-weighted mean over the layer's cells
+            h = np.array([r["top"] - r["bottom"] for r in rows if r["layer"] == k])
+            theta = np.array([r["moisture"] for r in rows if r["layer"] == k])
+            out.append(theta @ h / h.sum())
+        return np.asarray(out, dtype=np.float32)
+
+obs = ObservationBuilder().add_field("node.volume", ["S"]).add_collector(
+    LidLayerMoisture("S", [2, 3])
+)
+```
+
+A LID node's `node.volume` includes the water its layers retain.
+
+### 2D groundwater ledgers
+
+`groundwater2d.ledger(term)` reports the aquifer's water ledger in m³. Storage
+terms are instantaneous and the others are cumulative since the start.
+`groundwater2d.species_ledger(species, term)` reports a transported species'
+cumulative ledger in that species' mass units. Each is a single value for the
+whole aquifer. `groundwater2d.transport` holds the transport configuration
+(sources, parameters, boundaries) and has no ledger of its own.
+
+```python
+from openswmm.engine import GroundwaterLedger, GroundwaterSpeciesLedger
+
+class GroundwaterLedgers:
+    requires = ("surface2d", "groundwater2d.ledger", "groundwater2d.species_ledger")
+
+    def __init__(self, water, species, terms):
+        self.water = [GroundwaterLedger[t] for t in water]
+        self.species, self.terms = species, [GroundwaterSpeciesLedger[t] for t in terms]
+        self.size = len(self.water) + len(self.terms)
+
+    def units(self, unit_system, flow_units):
+        return ["m3"] * len(self.water) + [f"{self.species} mass"] * len(self.terms)
+
+    def bind(self, adapter):
+        optional_module(adapter, "surface2d")
+        gw = adapter.solver.groundwater2d
+        if not gw.active:
+            raise RuntimeError("the model has no [2D_AQUIFER]")
+        self.idx = list(gw.species).index(self.species)
+
+    def collect(self, adapter):
+        values = [adapter.call("groundwater2d.ledger", t) for t in self.water]
+        values += [adapter.call("groundwater2d.species_ledger", self.idx, t) for t in self.terms]
+        return np.asarray(values, dtype=np.float32)
+
+obs = ObservationBuilder().add_collector(
+    GroundwaterLedgers(["STORAGE", "INFIL_IN"], "Dye", ["STORAGE", "SOURCE_IN"])
+)
+```
+
+### Coupling frames
+
+A `CouplingFrame`, applied with `adapter.call("coupling.apply_frame", frame)`,
+is an input. It sets runtime sources, boundaries and forcings in one step,
+and a frame the engine rejects changes nothing. What a frame delivered is
+observed through the receipts: `coupling.surface.source_receipt(source_id,
+cell).applied_m3` per cell and the gross `coupling.surface.water_totals`, in
+m³ since the start.
+
+```python
+from openswmm.engine import BadIndexError
+
+class SourceReceipts:
+    requires = ("surface2d", "coupling.surface.source_receipt", "coupling.surface.water_totals")
+
+    def __init__(self, source_id, cells):
+        self.source_id, self.cells, self.size = source_id, list(cells), len(cells) + 1
+
+    def units(self, unit_system, flow_units):
+        return ["m3"] * self.size
+
+    def bind(self, adapter):
+        optional_module(adapter, "surface2d")
+
+    def applied(self, adapter, cell):
+        try:
+            return adapter.call("coupling.surface.source_receipt", self.source_id, cell).applied_m3
+        except BadIndexError:  # no frame has set this source on this cell yet
+            return 0.0
+
+    def collect(self, adapter):
+        applied = [self.applied(adapter, c) for c in self.cells]
+        total = adapter.solver.coupling.surface.water_totals["external_in"]
+        return np.asarray([*applied, total], dtype=np.float32)
+```
+
+### Flow tracing
+
+`FlowTracer` is a standalone handle, not a solver service.
+`prepare_live(out_path)` scans the reporting periods that a running engine has
+written so far, so a collector can rebuild `trace.averages` and trace from a
+seed node at each step. Values change once per `REPORT_STEP` and average over
+every period since the start. Before the first period is written,
+`prepare_live` raises `TraceError` with `TraceStatus.IO`. Give the env an
+`out_path`, and pass the same path to the collector:
+
+```python
+from openswmm.engine import FlowTracer, TraceDirection, TraceError, TraceLink, TraceNode, TraceStatus
+from openswmm_gymnasium.envs import SwmmRTCEnv
+
+class TraceFractions:
+    requires = ("trace", "trace.prepare_live", "trace.estimate")
+
+    def __init__(self, out_path, seed, nodes, direction=TraceDirection.UPSTREAM):
+        self.out, self.seed, self.nodes, self.direction = str(out_path), seed, list(nodes), direction
+        self.size, self.tracer = len(nodes), None
+
+    def units(self, unit_system, flow_units):
+        return ["fraction"] * self.size
+
+    def bind(self, adapter):  # each reset starts a new output file
+        if self.tracer is not None:
+            self.tracer.close()
+        to_m = 0.3048 if adapter.unit_system == "US" else 1.0
+        self.tracer = FlowTracer(
+            [TraceNode(n.id, n.type) for n in adapter.solver.nodes],
+            [TraceLink(k.id, k.from_node.index, k.to_node.index, k.type, k.length * to_m)
+             for k in adapter.solver.links],
+        )
+        self.idx = [self.tracer.node_ids.index(n) for n in self.nodes]
+
+    def collect(self, adapter):
+        try:
+            self.tracer.prepare_live(self.out)
+        except TraceError as exc:
+            if exc.code != TraceStatus.IO:
+                raise
+            return np.zeros(self.size, dtype=np.float32)  # no reporting period yet
+        result = self.tracer.estimate(self.seed, self.direction)
+        return np.asarray([result.nodes[i].ratio for i in self.idx], dtype=np.float32)
+
+env = SwmmRTCEnv(
+    "model.inp",
+    out_path="run.out",
+    observation_builder=ObservationBuilder().add_collector(
+        TraceFractions("run.out", "O1", ["J2", "J10"])
+    ),
+)
+```
+
+When tracing upstream from an outfall, each value is the share of the
+outfall's averaged flow that passed through that node. When tracing
+downstream from a node, each value is the share of that node's flow that
+reaches it. Ratios can exceed 1 where flow recirculates. Nodes with ponding or
+external exchanges need `TraceNodeFlags`; see the engine's tracing guide.
+
+### Heat snapshots are not observations
+
+`heat.snapshot()` captures the heat settings before a run, and `restore()` puts
+them back. The engine refuses both with `LifecycleError` once the model is
+initialized, and envs bind collectors only after the run starts, so a
+collector can never use a snapshot. A snapshot is useful between `open()` and
+`initialize()`, the same window design factories write in:
+
+```python
+from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium.spaces.design import HeatSourceTemperature
+
+adapter = SolverAdapter("model.inp")  # [OPTIONS] HEAT_TRANSPORT YES
+adapter.open()
+heat = optional_module(adapter, "heat")
+design = HeatSourceTemperature(["DWF"], 0.0, 40.0)
+design.bind(adapter)
+with heat.snapshot() as saved:
+    design.apply(adapter, np.array([30.0], dtype=np.float32))
+    ...  # inspect the candidate
+    saved.restore()  # back to the authored settings
+adapter.initialize()
+```
+
+Envs open a fresh model for every episode, so they do not need a snapshot
+between episodes. For the heat state that can be observed during a run, see
+the limits under Units below.
+
 ## Units
 
 Ordinary 1D fields use their catalogued model-unit labels; fixed-unit fields

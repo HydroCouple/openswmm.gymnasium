@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Integration tests** (`tests/integration/`, run in CI with the unit tier):
   Sync and Async vector envs reproduce serial runs exactly, and a recorded
   trajectory reads back and replays to identical observations and rewards.
+- **`ObservationBuilder.add_collector(collector)`** adds a collector of your
+  own, for engine surfaces that are not one value per element or per mesh
+  cell. The user guide's *Custom collectors* section gives tested collectors
+  for LID node layers (`infrastructure.lids.node_profile`), the 2D groundwater
+  water and species ledgers, coupling-frame receipts and live flow tracing
+  (`FlowTracer.prepare_live` on the episode's growing output), and explains why
+  heat snapshots are pre-run save/restore rather than observations.
 
 ### Changed
 
@@ -53,7 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require_engine_capabilities` names the upgrade otherwise. The 2D
   groundwater service is spelled by its canonical path, `groundwater2d`
   (`surface2d.groundwater` still resolves to it).
-
 - **Action spaces carry only their non-empty halves.** Gymnasium's `check_env`
   rejects an empty `Dict`, so an RTC env's action space is
   `Dict({"runtime": ...})` and a CIP env's `Dict({"design": ...})`; the joint
@@ -69,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   water-age and reaction modules come from `optional_module(adapter, name)`,
   which keeps the two-tier (build, then model) guard and its messages.
   Observations, rewards and factories produce the same values.
+
+### Fixed
+
+- `add_field` on a catalog method (`"groundwater2d.ledger"`) raised
+  `KeyError: 'type'`; it now raises `ValueError` naming the path.
 
 ### Added — any engine field as an observation or an action
 

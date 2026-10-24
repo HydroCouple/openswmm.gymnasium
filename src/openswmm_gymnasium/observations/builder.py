@@ -716,6 +716,29 @@ class ObservationBuilder:
         self._collectors.append(_CellFieldCollector(path, cells, args))
         return self
 
+    # ----- Custom collectors ---------------------------------------------
+
+    def add_collector(self, collector: Any) -> ObservationBuilder:
+        """Append a collector of your own.
+
+        For engine surfaces that are neither one value per element
+        (L{add_field}) nor one per mesh cell (L{add_cell_field}). A collector
+        is any object with C{requires} (catalog paths it reads), C{size},
+        C{units(unit_system, flow_units)}, C{bind(adapter)} (called at every
+        reset, after the run has started) and C{collect(adapter)} (C{size}
+        float32 values). See the user guide's "Custom collectors".
+
+        @raise TypeError: If C{collector} lacks one of those members.
+        @rtype: L{ObservationBuilder}
+        """
+        missing = [
+            n for n in ("requires", "size", "units", "bind", "collect") if not hasattr(collector, n)
+        ]
+        if missing:
+            raise TypeError(f"{type(collector).__name__} is not a collector: no {missing}")
+        self._collectors.append(collector)
+        return self
+
     # ----- Time features -------------------------------------------------
 
     def add_clock(self, features: Sequence[str] | None = None) -> ObservationBuilder:

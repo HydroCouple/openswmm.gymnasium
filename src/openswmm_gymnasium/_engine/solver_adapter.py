@@ -87,7 +87,9 @@ def field_entry(path: str) -> dict[str, Any]:
             f"{path!r} is not an engine field; see openswmm.engine.catalog for valid paths"
         ) from None
     if entry["form"] != "property" or entry["type"] not in _NUMERIC:
-        raise ValueError(f"{path!r} is not a numeric property ({entry['type'] or entry['form']})")
+        raise ValueError(
+            f"{path!r} is not a numeric property ({entry.get('type') or entry['form']})"
+        )
     element_kind(path)
     return entry
 

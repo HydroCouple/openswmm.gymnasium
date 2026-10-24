@@ -1,0 +1,63 @@
+[TITLE]
+2D surface + aquifer fixture with groundwater transport: two ponded
+triangles (initial depths 0.04 m and 0.03 m) infiltrate into a uniform
+aquifer that starts at Dye 10 mg/L, while well W injects 1e-6 m3/s at
+Dye 3 mg/L into the first triangle (CELL 1 is one-based). No 1D network.
+Reduced from the two-triangle aquifer deck in openswmm.engine
+python/tests/engine/test_groundwater_checkpoint.py.
+
+[OPTIONS]
+FLOW_UNITS CMS
+FLOW_ROUTING DYNWAVE
+START_DATE 01/01/2026
+START_TIME 00:00:00
+END_DATE 01/01/2026
+END_TIME 00:10:00
+REPORT_STEP 00:01:00
+ROUTING_STEP 1
+
+[POLLUTANTS]
+Dye MG/L 0 0 0 0 NO * 0 0
+
+[2D_OPTIONS]
+INTEGRATOR EXPLICIT
+LTS_TIERS 1
+MAX_TIMESTEP 1
+EVAPORATION NO
+TRANSPORT_POLLUTANTS YES
+REPORT_2D NO
+
+[2D_VERTICES]
+0 0 .5
+4 0 .5
+0 2 .5
+4 2 .5
+
+[2D_TRIANGLES]
+0 1 2 .03 .04
+1 3 2 .03 .03
+
+[2D_AQUIFER_OPTIONS]
+CLOSURE CLOSED_FORM
+M_LAYERS 4
+NODE_ENROLMENT ROWS
+LINK_SEEPAGE NONE
+GW_ET NONE
+
+[2D_AQUIFER]
+* 36 1 .45 .1 2 HG0 .3 C_LOSS .02
+
+[GW_TRANSPORT_OPTIONS]
+UNSAT_TRANSPORT BULK
+DISPERSION NO
+
+[GW_INITIAL_QUALITY]
+* SAT Dye 10
+* UNSAT Dye 10
+
+[TIMESERIES]
+WELL 0:00 .000001
+WELL 1:00 .000001
+
+[GW_SOURCES]
+W CELL 1 FLOW WELL Dye CONC 3
