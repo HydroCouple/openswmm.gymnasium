@@ -201,7 +201,8 @@ process-design run instead.
 
 All three are **optional surfaces** — they need engine modules a partial build
 may not carry, and (for heat and water age) an `[OPTIONS]` flag the model may
-not set. `SolverAdapter.heat` / `.water_age` / `.reactions` therefore apply a
+not set. Their factories therefore reach them through
+`optional_module(adapter, "heat")` (or `"water_age"` / `"reactions"`), a
 two-tier guard: *does this build carry the module*, then *does the open model
 actually enable it*. Both tiers raise with the remedy named rather than
 returning defaults, because a heat or water-age configuration written into a

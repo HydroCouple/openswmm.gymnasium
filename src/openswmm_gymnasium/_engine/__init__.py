@@ -36,6 +36,7 @@ from openswmm_gymnasium._engine.solver_adapter import (
     SolverAdapter,
     element_kind,
     field_entry,
+    optional_module,
     require_engine_capabilities,
     require_for,
 )
@@ -48,5 +49,6 @@ __all__ = [
     "require_for",
     "field_entry",
     "element_kind",
+    "optional_module",
     "unit_label",
 ]

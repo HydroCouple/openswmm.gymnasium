@@ -31,6 +31,7 @@ integration tests.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -61,67 +62,54 @@ class _HG:
         self.dinit = 0.0
 
 
-class _Nodes:
-    def __init__(self, calls, baseline, shapes=None, curves=None):
+class _Curve:
+    """Stand-in for a C{Tables.as_curve} curve; a rewrite is recorded as one call."""
+
+    def __init__(self, calls, idx, points):
         self._calls = calls
-        self._baseline = baseline
-        self._ids = {"T1": 0, "T2": 1, "T3": 2, "T4": 3, "C1": 4}
-        # Default: every node in the legacy fixtures is FUNCTIONAL.
-        self._shapes = shapes if shapes is not None else {}
-        self._curves = curves if curves is not None else {}
+        self._idx = idx
+        self.points = points
 
-    def get_index(self, nid):
-        return self._ids[nid]
+    def clear(self):
+        self._calls.append(("curve", self._idx, []))
 
-    def get_storage_shape(self, idx):
-        return self._shapes.get(idx, "FUNCTIONAL")
-
-    def get_storage_curve(self, idx):
-        return self._curves[idx]
-
-    def get_storage_functional(self, idx):
-        return self._baseline[idx]
-
-    def set_storage_functional(self, idx, a, b, c):
-        self._calls.append(("storage", idx, round(a, 4), round(b, 4), round(c, 4)))
+    def add_point(self, x, y):
+        self._calls[-1][2].append((round(x, 4), round(y, 4)))
 
 
 class _Tables:
-    """Stand-in for L{_TablesCompat} over a couple of depth-area curves."""
+    """Stand-in for C{solver.tables} over a couple of depth-area curves."""
 
     def __init__(self, calls, curves):
         self._calls = calls
         self._curves = curves
 
-    def get_curve_points(self, idx):
-        return self._curves[idx]
-
-    def set_curve_points(self, idx, points):
-        self._calls.append(("curve", idx, [(round(x, 4), round(y, 4)) for x, y in points]))
+    def as_curve(self, idx):
+        return _Curve(self._calls, idx, self._curves[idx])
 
 
-class _Subs:
-    def get_index(self, sid):
-        return {"S1": 0, "S2": 1}[sid]
+class _Lids:
+    """Stand-in for C{solver.infrastructure.lids}."""
 
-
-class _Infra:
     def __init__(self, calls):
         self._calls = calls
         self._ctrl = {"BIO": 10, "PAVE": 11, "ROOF": 12}
 
-    def get_lid_index(self, cid):
+    def get_index(self, cid):
         return self._ctrl[cid]
 
-    def lid_usage_add(self, sid, lid, number, area, width, init_sat, from_imperv):
+    def usage_add(self, sid, lid, *, number, area, width, init_sat, from_imperv):
         self._calls.append(("lid", sid, lid, number, round(area, 3), width))
 
 
 class _Inflows:
+    """Stand-in for C{solver.inflows}."""
+
     def __init__(self, calls, entries):
         self._calls = calls
         self._entries = entries
 
+    @property
     def hydrograph_count(self):
         return len(self._entries)
 
@@ -138,31 +126,55 @@ class _Inflows:
 
 
 class MockAdapter:
-    """Records the engine setter calls the factories make."""
+    """Records the engine setter calls the factories make.
+
+    Catalog C{index} / C{read} / C{write} over the storage fixtures, plus the
+    C{solver} services (tables, LIDs, inflows) the factories reach directly.
+    """
+
+    _IDS = {
+        "node": {"T1": 0, "T2": 1, "T3": 2, "T4": 3, "C1": 4},
+        "subcatchment": {"S1": 0, "S2": 1},
+    }
 
     def __init__(self):
         self.calls: list[tuple] = []
         # T1/T2 are FUNCTIONAL; T3/T4 are TABULAR on curves 7 and 8; C1 is a
         # geometric (CYLINDRICAL) storage unit that cannot be sized.
-        self.nodes = _Nodes(
-            self.calls,
-            {0: (10000.0, 0.0, 0.0), 1: (5000.0, 0.5, 100.0)},
-            shapes={2: "TABULAR", 3: "TABULAR", 4: "CYLINDRICAL"},
-            curves={2: 7, 3: 8},
+        self.functional = {0: (10000.0, 0.0, 0.0), 1: (5000.0, 0.5, 100.0)}
+        self.shapes = {2: "TABULAR", 3: "TABULAR", 4: "CYLINDRICAL"}
+        self.curves = {2: 7, 3: 8}
+        self.solver = SimpleNamespace(
+            tables=_Tables(
+                self.calls,
+                {
+                    7: [(0.0, 1000.0), (5.0, 2000.0)],
+                    8: [(0.0, 400.0), (2.0, 800.0)],
+                },
+            ),
+            infrastructure=SimpleNamespace(lids=_Lids(self.calls)),
+            inflows=_Inflows(
+                self.calls,
+                [_HG("SanSewer", -1, 0, 2.0, 3.0), _HG("SanSewer", -1, 1, 4.0, 5.0)],
+            ),
         )
-        self.tables = _Tables(
-            self.calls,
-            {
-                7: [(0.0, 1000.0), (5.0, 2000.0)],
-                8: [(0.0, 400.0), (2.0, 800.0)],
-            },
-        )
-        self.subcatchments = _Subs()
-        self.infrastructure = _Infra(self.calls)
-        self.inflows = _Inflows(
-            self.calls,
-            [_HG("SanSewer", -1, 0, 2.0, 3.0), _HG("SanSewer", -1, 1, 4.0, 5.0)],
-        )
+
+    def index(self, kind, element_id):
+        return self._IDS[kind][element_id]
+
+    def read(self, path, idx):
+        if path == "node.storage.shape":
+            # A StorageShape member; every node not listed is FUNCTIONAL.
+            return SimpleNamespace(name=self.shapes.get(idx, "FUNCTIONAL"))
+        if path == "node.storage.curve":
+            return self.curves[idx]
+        assert path == "node.storage.functional", path
+        return self.functional[idx]
+
+    def write(self, path, idx, value):
+        assert path == "node.storage.functional", path
+        a, b, c = value
+        self.calls.append(("storage", idx, round(a, 4), round(b, 4), round(c, 4)))
 
 
 # -----------------------------------------------------------------------------
@@ -239,7 +251,7 @@ class TestStorageVolume(unittest.TestCase):
 
     def test_two_nodes_sharing_one_curve_are_rejected(self):
         a = MockAdapter()
-        a.nodes._curves[3] = 7  # point T4 at T3's curve
+        a.curves[3] = 7  # point T4 at T3's curve
         f = StorageVolume(["T3", "T4"], low=0.5, high=3.0, mode="scalar")
         with self.assertRaisesRegex(ValueError, "share"):
             f.bind(a)

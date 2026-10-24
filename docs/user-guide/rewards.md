@@ -116,13 +116,13 @@ class MyCustomTerm:
     direction = "minimize"
 
     def bind(self, adapter):
-        self._idx = adapter.links.get_index("OUT")
+        self._idx = adapter.index("link", "OUT")
 
     def reset(self):
         pass
 
     def step(self, adapter, dt_seconds):
-        return float(adapter.links.get_flow(self._idx)) * dt_seconds
+        return float(adapter.read("link.flow", self._idx)) * dt_seconds
 ```
 
 Register with {py:class}`~openswmm_gymnasium.rewards.RewardRegistry` if

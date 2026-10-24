@@ -86,7 +86,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, optional_module
 
 # =============================================================================
 # Protocol
@@ -220,14 +220,14 @@ class LinkRoughness:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("LinkRoughness.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
-            adapter.links.set_roughness(idx, float(v))
+            adapter.write("link.roughness", idx, float(v))
 
 
 class LinkLength:
@@ -269,14 +269,14 @@ class LinkLength:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("LinkLength.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
-            adapter.links.set_length(idx, float(v))
+            adapter.write("link.length", idx, float(v))
 
 
 # Which of the four cross-section geometry parameters carry a B{length}
@@ -398,11 +398,15 @@ class LinkDiameter:
         @raise ValueError: If a target link's shape has no scalable
             dimension, or its baseline rise is non-positive.
         """
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
+        links = adapter.solver.links
         baseline: list[tuple[int, list[float], tuple[int, ...], float]] = []
         for lid, idx in zip(self._link_ids, self._idxs, strict=True):
-            shape_code, *geoms = adapter.links.get_xsect(idx)
-            shape_name = adapter.links.get_xsect_shape_name(idx)
+            xsect = links[idx].xsect
+            # (shape, geom1..geom4); the shape is an XSectShape, coerced with int().
+            shape_code, *geoms = xsect.as_tuple()
+            # Shape member name rather than code: the ordinals were renumbered in 6.0.
+            shape_name = str(xsect.info().shape_name)
             slots = _RESIZABLE_GEOM_SLOTS.get(shape_name)
             if not slots:
                 raise ValueError(
@@ -411,7 +415,8 @@ class LinkDiameter:
                     "(its geometry comes from a transect / street table). "
                     "Remove it from link_ids."
                 )
-            rise = float(adapter.links.get_full_depth(idx))
+            # True rise from the engine's analytic geometry (exact for every shape).
+            rise = float(xsect.geometry().full_depth)
             if rise <= 0.0:
                 raise ValueError(
                     f"LinkDiameter cannot size link {lid!r}: the engine "
@@ -425,6 +430,7 @@ class LinkDiameter:
         if self._idxs is None or self._baseline is None:
             raise RuntimeError("LinkDiameter.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        links = adapter.solver.links
         for idx, (shape_code, geoms, slots, rise), v in zip(
             self._idxs, self._baseline, clipped, strict=True
         ):
@@ -432,7 +438,8 @@ class LinkDiameter:
             scaled = list(geoms)
             for s in slots:
                 scaled[s] = geoms[s] * factor
-            adapter.links.set_xsect(idx, shape_code, *scaled)
+            # The v6 xsect setter accepts a (shape, g1, g2, g3, g4) tuple.
+            links[idx].xsect = (shape_code, *scaled)
 
 
 class NodeMaxDepth:
@@ -440,7 +447,7 @@ class NodeMaxDepth:
 
     Used as a CIP proxy for storage capacity: tank-like nodes whose
     L{max_depth} grows can hold more water before surcharging /
-    flooding. The factory delegates to L{openswmm.engine.Nodes.set_max_depth}.
+    flooding. The factory writes the catalog field C{node.max_depth}.
 
     @ivar name: Action-space key, default C{"node_max_depth"}.
     """
@@ -478,14 +485,14 @@ class NodeMaxDepth:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+        self._idxs = [adapter.index("node", nid) for nid in self._node_ids]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("NodeMaxDepth.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
-            adapter.nodes.set_max_depth(idx, float(v))
+            adapter.write("node.max_depth", idx, float(v))
 
 
 class SubcatchGWOutflowCoeff:
@@ -539,20 +546,21 @@ class SubcatchGWOutflowCoeff:
         return self._box
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.subcatchments.get_index(s) for s in self._subcatch_ids]
-        # Cache the full parameter tuple; only a1 is overwritten in apply.
+        self._idxs = [adapter.index("subcatchment", s) for s in self._subcatch_ids]
+        # Cache the full parameter tuple — (surf_elev, a1, b1, a2, b2, a3, tw,
+        # hstar) in [GROUNDWATER] token order; only a1 is overwritten in apply.
         self._cached_params = [
-            tuple(adapter.subcatchments.get_gw_params(idx)) for idx in self._idxs
+            tuple(adapter.read("subcatchment.gw_params", idx)) for idx in self._idxs
         ]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._cached_params is None:
             raise RuntimeError("SubcatchGWOutflowCoeff.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        subcatchments = adapter.solver.subcatchments
         for idx, params, v in zip(self._idxs, self._cached_params, clipped, strict=True):
             surf_elev, _a1, b1, a2, b2, a3, tw, hstar = params
-            adapter.subcatchments.set_gw_params(
-                idx,
+            subcatchments[idx].set_gw_params(
                 float(surf_elev),
                 float(v),
                 float(b1),
@@ -610,7 +618,13 @@ class StorageVolume:
     """
 
     #: Catalog paths this component needs from the engine (see require_for).
-    requires: tuple[str, ...] = ("node.storage", "tables")
+    requires: tuple[str, ...] = (
+        "node.storage",
+        "node.storage.shape",
+        "node.storage.functional",
+        "node.storage.curve",
+        "tables",
+    )
 
     def __init__(
         self,
@@ -667,13 +681,14 @@ class StorageVolume:
             FUNCTIONAL nor TABULAR, if C{mode="coeffs"} is used with a
             TABULAR node, or if two targets share one storage curve.
         """
-        self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+        self._idxs = [adapter.index("node", nid) for nid in self._node_ids]
         baseline: list[tuple[str, object]] = []
         seen_curves: dict[int, str] = {}
         for nid, idx in zip(self._node_ids, self._idxs, strict=True):
-            shape = adapter.nodes.get_storage_shape(idx)
+            # StorageShape member name; reading it raises on a non-storage node.
+            shape = str(adapter.read("node.storage.shape", idx).name)
             if shape == "FUNCTIONAL":
-                baseline.append(("FUNCTIONAL", tuple(adapter.nodes.get_storage_functional(idx))))
+                baseline.append(("FUNCTIONAL", tuple(adapter.read("node.storage.functional", idx))))
             elif shape == "TABULAR":
                 if self._mode == "coeffs":
                     raise ValueError(
@@ -681,7 +696,7 @@ class StorageVolume:
                         "its storage shape is TABULAR, which has no (a, b, c) "
                         "triple. Use mode='scalar'."
                     )
-                curve_idx = int(adapter.nodes.get_storage_curve(idx))
+                curve_idx = int(adapter.read("node.storage.curve", idx))
                 prior = seen_curves.get(curve_idx)
                 if prior is not None:
                     raise ValueError(
@@ -692,7 +707,8 @@ class StorageVolume:
                     )
                 seen_curves[curve_idx] = nid
                 points = [
-                    (float(x), float(y)) for x, y in adapter.tables.get_curve_points(curve_idx)
+                    (float(x), float(y))
+                    for x, y in adapter.solver.tables.as_curve(curve_idx).points
                 ]
                 baseline.append(("TABULAR", (curve_idx, points)))
             else:
@@ -711,19 +727,22 @@ class StorageVolume:
             for idx, (shape, base), f in zip(self._idxs, self._baseline, factors, strict=True):
                 if shape == "FUNCTIONAL":
                     a0, b0, c0 = base  # type: ignore[misc]
-                    adapter.nodes.set_storage_functional(
-                        idx, float(a0) * float(f), float(b0), float(c0) * float(f)
+                    adapter.write(
+                        "node.storage.functional",
+                        idx,
+                        (float(a0) * float(f), float(b0), float(c0) * float(f)),
                     )
                 else:  # TABULAR — scale the curve's areas, keep its depths.
                     curve_idx, points = base  # type: ignore[misc]
-                    adapter.tables.set_curve_points(
-                        curve_idx, [(d, a * float(f)) for d, a in points]
-                    )
+                    curve = adapter.solver.tables.as_curve(curve_idx)
+                    curve.clear()
+                    for d, a in points:
+                        curve.add_point(float(d), float(a * float(f)))
         else:  # coeffs — FUNCTIONAL only, enforced at bind.
             triples = arr.reshape(len(self._idxs), 3)
             triples = np.clip(triples, self._coeff_low, self._coeff_high)
             for idx, (a, b, c) in zip(self._idxs, triples, strict=True):
-                adapter.nodes.set_storage_functional(idx, float(a), float(b), float(c))
+                adapter.write("node.storage.functional", idx, (float(a), float(b), float(c)))
 
 
 class LIDPlacement:
@@ -821,27 +840,27 @@ class LIDPlacement:
         # Validate subcatchments resolve, and map each candidate control id
         # to its engine index (usage_add needs an integer lid index).
         for sid in self._subcatch_ids:
-            adapter.subcatchments.get_index(sid)
-        self._control_idxs = [
-            adapter.infrastructure.get_lid_index(cid) for cid in self._lid_controls
-        ]
+            adapter.index("subcatchment", sid)
+        lids = adapter.solver.infrastructure.lids
+        self._control_idxs = [lids.get_index(cid) for cid in self._lid_controls]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._control_idxs is None:
             raise RuntimeError("LIDPlacement.bind() must be called before apply()")
         m = len(self._lid_controls)
         pairs = np.asarray(value, dtype=np.float32).reshape(len(self._subcatch_ids), 2)
+        lids = adapter.solver.infrastructure.lids
         for sid, (type_raw, area_raw) in zip(self._subcatch_ids, pairs, strict=True):
             t = int(np.clip(np.floor(type_raw), 0, m - 1))
             area = float(np.clip(area_raw, self._area_low, self._area_high))
-            adapter.infrastructure.lid_usage_add(
+            lids.usage_add(
                 sid,
-                self._control_idxs[t],
-                self._number,
-                area,
-                self._width,
-                self._init_sat,
-                self._from_imperv,
+                int(self._control_idxs[t]),
+                number=self._number,
+                area=area,
+                width=self._width,
+                init_sat=self._init_sat,
+                from_imperv=self._from_imperv,
             )
 
 
@@ -926,10 +945,12 @@ class RDIIUnitHydrograph:
     def bind(self, adapter: SolverAdapter) -> None:
         # Resolve each target to its existing hydrograph entry so T and K
         # can be preserved. Entries are addressed by value, so scan.
-        count = adapter.inflows.hydrograph_count()
+        inflows = adapter.solver.inflows
+        count = int(inflows.hydrograph_count)
         by_key: dict[tuple[str, int, int], tuple[float, float]] = {}
         for i in range(count):
-            e = adapter.inflows.get_hydrograph(i)
+            # HydrographEntry: (uh_name, month, response, r, t, k, dmax, drecov, dinit).
+            e = inflows.get_hydrograph(i)
             by_key[(str(e.uh_name), int(e.month), int(e.response))] = (
                 float(e.t),
                 float(e.k),
@@ -949,13 +970,14 @@ class RDIIUnitHydrograph:
         if self._tk is None:
             raise RuntimeError("RDIIUnitHydrograph.bind() must be called before apply()")
         rows = np.asarray(value, dtype=np.float32).reshape(len(self._targets), self._stride)
+        inflows = adapter.solver.inflows
         for (uh, month, response), (t, k), row in zip(self._targets, self._tk, rows, strict=True):
             r = float(np.clip(row[0], self._r_low, self._r_high))
-            adapter.inflows.set_hydrograph_rtk(uh, month, response, r, float(t), float(k))
+            inflows.set_hydrograph_rtk(uh, int(month), int(response), r, float(t), float(k))
             if self._include_ia:
                 ia = np.clip(row[1:4], self._ia_low, self._ia_high)
-                adapter.inflows.set_hydrograph_ia(
-                    uh, month, response, float(ia[0]), float(ia[1]), float(ia[2])
+                inflows.set_hydrograph_ia(
+                    uh, int(month), int(response), float(ia[0]), float(ia[1]), float(ia[2])
                 )
 
 
@@ -1003,7 +1025,7 @@ class ReactionCoefficientValue:
     """
 
     #: Catalog paths this component needs from the engine (see require_for).
-    requires: tuple[str, ...] = ("reactions",)
+    requires: tuple[str, ...] = ("reactions", "coefficient.is_param", "coefficient.value")
 
     def __init__(
         self,
@@ -1067,7 +1089,8 @@ class ReactionCoefficientValue:
         @raise ValueError: If a coefficient is undeclared, or is a CONSTANT
             rather than a PARAMETER.
         """
-        declared = set(adapter.reactions.coefficient_names())
+        # optional_module raises when the engine build has no reactions module.
+        declared = {str(c.name) for c in optional_module(adapter, "reactions").coefficients}
         missing = [c for c in self._coefficient_ids if c not in declared]
         if missing:
             raise ValueError(
@@ -1076,7 +1099,7 @@ class ReactionCoefficientValue:
                 f"{sorted(declared)!r}"
             )
         constants = [
-            c for c in self._coefficient_ids if not adapter.reactions.is_coefficient_param(c)
+            c for c in self._coefficient_ids if not adapter.read("coefficient.is_param", c)
         ]
         if constants:
             raise ValueError(
@@ -1093,7 +1116,8 @@ class ReactionCoefficientValue:
             raise RuntimeError("ReactionCoefficientValue.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
         for cid, v in zip(self._coefficient_ids, clipped, strict=True):
-            adapter.reactions.set_coefficient(cid, float(v))
+            # Model / expression units, unconverted.
+            adapter.write("coefficient.value", cid, float(v))
 
 
 #: Engine refusal range for a heat source temperature, degrees Celsius. The
@@ -1135,8 +1159,8 @@ class HeatSourceTemperature:
     unconverted.
 
     B{Requires} C{[OPTIONS] HEAT_TRANSPORT YES}; L{bind} raises with that
-    message otherwise (via L{SolverAdapter.heat}) rather than storing
-    temperatures the model will never route.
+    message otherwise (via L{openswmm_gymnasium._engine.optional_module})
+    rather than storing temperatures the model will never route.
 
     @ivar name: Action-space key, default C{"heat_source_temperature"}.
     """
@@ -1195,7 +1219,8 @@ class HeatSourceTemperature:
             open model does not enable C{HEAT_TRANSPORT}.
         @raise ValueError: If a name is not a heat-source pathway.
         """
-        known = set(adapter.heat.source_kinds())
+        # Compare by member name: configs never carry the engine's HeatSourceKind enum.
+        known = {str(getattr(s, "name", s)) for s in optional_module(adapter, "heat").sources}
         unknown = [s for s in self._sources if s not in known]
         if unknown:
             raise ValueError(
@@ -1208,8 +1233,9 @@ class HeatSourceTemperature:
         if not self._bound:
             raise RuntimeError("HeatSourceTemperature.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        sources = adapter.solver.heat.sources
         for source, v in zip(self._sources, clipped, strict=True):
-            adapter.heat.set_source_temp(source, float(v))
+            sources[source] = float(v)  # degC; refused (not clamped) outside [-50, 100]
 
 
 class WaterAgeSourceAge:
@@ -1234,8 +1260,8 @@ class WaterAgeSourceAge:
     B{Units.} Hours, the config file's own unit, written unconverted.
 
     B{Requires} C{[OPTIONS] WATER_AGE YES}; L{bind} raises with that message
-    otherwise (via L{SolverAdapter.water_age}) rather than storing ages the
-    model will never transport.
+    otherwise (via L{openswmm_gymnasium._engine.optional_module}) rather than
+    storing ages the model will never transport.
 
     @ivar name: Action-space key, default C{"water_age_source_age"}.
     """
@@ -1284,7 +1310,8 @@ class WaterAgeSourceAge:
             the open model does not enable C{WATER_AGE}.
         @raise ValueError: If a name is not a water-age pathway.
         """
-        known = set(adapter.water_age.source_pathways())
+        # Compare by member name: configs never carry the engine's WaterAgeSource enum.
+        known = {str(getattr(s, "name", s)) for s in optional_module(adapter, "water_age").globals}
         unknown = [s for s in self._sources if s not in known]
         if unknown:
             raise ValueError(
@@ -1297,5 +1324,6 @@ class WaterAgeSourceAge:
         if not self._bound:
             raise RuntimeError("WaterAgeSourceAge.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        source_ages = adapter.solver.water_age.globals
         for source, v in zip(self._sources, clipped, strict=True):
-            adapter.water_age.set_source_age(source, float(v))
+            source_ages[source] = float(v)  # hours; negative is legal (extracts age-volume)

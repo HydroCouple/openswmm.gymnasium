@@ -50,12 +50,12 @@ class TestFieldEntry(BaseTestCase):
 
 
 class TestAdapterFieldAccess(BaseEngineTest):
-    def test_read_matches_compat_getter_and_bulk(self):
+    def test_read_matches_engine_getter_and_bulk(self):
         adapter = self.make_adapter()
         for _ in range(20):
             adapter.step()
         j1 = adapter.index("node", "J1")
-        self.assertEqual(adapter.read("node.depth", j1), adapter.nodes.get_depth(j1))
+        self.assertEqual(adapter.read("node.depth", j1), adapter.solver.nodes[j1].depth)
         self.assertEqual(adapter.read_all("node.depth")[j1], adapter.read("node.depth", j1))
         self.assertIsNone(adapter.read_all("link.stats.max_flow"))
 

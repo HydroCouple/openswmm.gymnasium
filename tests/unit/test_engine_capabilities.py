@@ -37,6 +37,7 @@ from openswmm_gymnasium._engine.solver_adapter import (
     EngineCapabilityError,
     SolverAdapter,
     _missing_engine_capabilities,
+    optional_module,
     require_engine_capabilities,
     require_for,
 )
@@ -160,26 +161,23 @@ class TestRequireFor(unittest.TestCase):
         require_for(object(), module=_complete_engine())
 
 
-class TestOptionalAccessorProbes(unittest.TestCase):
-    """Each optional accessor names its own missing module, and the remedy.
+class TestOptionalModuleProbes(unittest.TestCase):
+    """Each optional module names its own missing build, and the remedy.
 
-    Drives the guards against a stand-in solver so no engine build is
-    needed. Only the B{build} tier is exercised here; the B{model} tier
-    (C{[OPTIONS] HEAT_TRANSPORT} / C{WATER_AGE} off) needs a real open
-    model and lives in C{test_process_surfaces.py}.
+    Drives L{optional_module} against a stand-in engine namespace and
+    solver so no engine build is needed. The B{model} tier against a real
+    open model (C{[OPTIONS] HEAT_TRANSPORT} / C{WATER_AGE} off) lives in
+    C{test_process_surfaces.py}.
     """
 
-    def _adapter_over(self, module) -> SolverAdapter:
-        """Build an adapter whose engine namespace is *module*.
+    def _adapter_over(self, **modules) -> SolverAdapter:
+        """Build an adapter whose solver carries only C{modules}.
 
-        Bypasses C{__init__} so no real solver is constructed: the build-tier
-        probes read only C{_engine} and the cached-accessor slots.
+        Bypasses C{__init__} so no real solver is constructed: the guard
+        reads only the engine namespace and C{adapter.solver.<name>}.
         """
         adapter = SolverAdapter.__new__(SolverAdapter)
-        adapter._solver = SimpleNamespace()
-        adapter._heat = None
-        adapter._water_age = None
-        adapter._reactions = None
+        adapter._solver = SimpleNamespace(**modules)
         return adapter
 
     def _patch_engine(self, module) -> None:
@@ -187,70 +185,88 @@ class TestOptionalAccessorProbes(unittest.TestCase):
         solver_adapter._engine = module
         self.addCleanup(setattr, solver_adapter, "_engine", original)
 
-    def test_heat_accessor_names_the_missing_module(self):
+    def test_heat_guard_names_the_missing_module(self):
         self._patch_engine(_complete_engine())
         with self.assertRaises(RuntimeError) as ctx:
-            _ = self._adapter_over(None).heat
+            optional_module(self._adapter_over(), "heat")
         message = str(ctx.exception)
         self.assertIn("Heat", message)
         self.assertIn("rebuild", message.lower())
 
-    def test_water_age_accessor_names_the_missing_module(self):
+    def test_water_age_guard_names_the_missing_module(self):
         self._patch_engine(_complete_engine())
         with self.assertRaises(RuntimeError) as ctx:
-            _ = self._adapter_over(None).water_age
+            optional_module(self._adapter_over(), "water_age")
         message = str(ctx.exception)
         self.assertIn("WaterAge", message)
         self.assertIn("rebuild", message.lower())
 
-    def test_reactions_accessor_names_the_missing_module(self):
+    def test_reactions_guard_names_the_missing_module(self):
         self._patch_engine(_complete_engine())
         with self.assertRaises(RuntimeError) as ctx:
-            _ = self._adapter_over(None).reactions
+            optional_module(self._adapter_over(), "reactions")
         message = str(ctx.exception)
         self.assertIn("Reactions", message)
         self.assertIn("rebuild", message.lower())
 
-    def test_heat_accessor_refuses_a_model_with_heat_transport_off(self):
+    def test_surface2d_guard_names_the_missing_build(self):
+        """A build without 2D raises ImportError from C{solver.surface2d}."""
+
+        class _No2DSolver:
+            @property
+            def surface2d(self):
+                raise ImportError("built without 2D")
+
+        adapter = SolverAdapter.__new__(SolverAdapter)
+        adapter._solver = _No2DSolver()
+        with self.assertRaises(RuntimeError) as ctx:
+            optional_module(adapter, "surface2d")
+        self.assertIn("OPENSWMM_BUILD_2D=OFF", str(ctx.exception))
+
+    def test_heat_guard_refuses_a_model_with_heat_transport_off(self):
         """Build tier passes, model tier does not: the module exists but
         the open model never routes heat, so writes would be silent."""
         module = _complete_engine()
-        module.Heat = lambda solver: SimpleNamespace(enabled=False)
+        module.Heat = object
         self._patch_engine(module)
         with self.assertRaises(RuntimeError) as ctx:
-            _ = self._adapter_over(None).heat
+            optional_module(self._adapter_over(heat=SimpleNamespace(enabled=False)), "heat")
         self.assertIn("HEAT_TRANSPORT", str(ctx.exception))
 
-    def test_water_age_accessor_refuses_a_model_with_water_age_off(self):
+    def test_water_age_guard_refuses_a_model_with_water_age_off(self):
         module = _complete_engine()
-        module.WaterAge = lambda solver: SimpleNamespace(enabled=False)
+        module.WaterAge = object
         self._patch_engine(module)
+        adapter = self._adapter_over(water_age=SimpleNamespace(enabled=False))
         with self.assertRaises(RuntimeError) as ctx:
-            _ = self._adapter_over(None).water_age
+            optional_module(adapter, "water_age")
         self.assertIn("WATER_AGE", str(ctx.exception))
 
-    def test_heat_accessor_is_cached_once_both_tiers_pass(self):
+    def test_surface2d_guard_refuses_an_inactive_surface(self):
+        adapter = self._adapter_over(surface2d=SimpleNamespace(is_active=False))
+        with self.assertRaises(RuntimeError) as ctx:
+            optional_module(adapter, "surface2d")
+        self.assertIn("no active 2D surface", str(ctx.exception))
+
+    def test_heat_guard_returns_the_solvers_own_module_once_both_tiers_pass(self):
+        """No wrapper is built per call: every call hands back C{solver.heat}."""
         module = _complete_engine()
-        constructions = []
-
-        def _heat(solver):
-            constructions.append(solver)
-            return SimpleNamespace(enabled=True)
-
-        module.Heat = _heat
+        module.Heat = object
         self._patch_engine(module)
-        adapter = self._adapter_over(None)
-        first = adapter.heat
-        self.assertIs(adapter.heat, first)
-        self.assertEqual(len(constructions), 1)
+        heat = SimpleNamespace(enabled=True)
+        adapter = self._adapter_over(heat=heat)
+        first = optional_module(adapter, "heat")
+        self.assertIs(first, heat)
+        self.assertIs(optional_module(adapter, "heat"), first)
 
     def test_reactions_has_no_model_tier_gate(self):
         """There is no [OPTIONS] flag for reactions, so an empty
         coefficient table must not be treated as a misconfiguration."""
         module = _complete_engine()
-        module.Reactions = lambda solver: SimpleNamespace(species=[], coefficients=[], terms=[])
+        module.Reactions = object
         self._patch_engine(module)
-        self.assertEqual(self._adapter_over(None).reactions.coefficient_names(), [])
+        adapter = self._adapter_over(reactions=SimpleNamespace(coefficients=[]))
+        self.assertEqual(list(optional_module(adapter, "reactions").coefficients), [])
 
 
 if __name__ == "__main__":

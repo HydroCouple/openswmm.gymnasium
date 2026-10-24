@@ -22,8 +22,8 @@ four vertices, centre-vertex coupling to J1).
 
 Covers: ``ObservationBuilder.add_2d_vertex_depths`` (space size,
 bind-time validation, collect shape/dtype), ``add_cell_field`` (bulk and
-per-cell reads against the engine, units, refusals), ``SolverAdapter.surface2d``
-gating (clear error on a 1D-only model), and the ``IGNORE_2D`` engine
+per-cell reads against the engine, units, refusals), ``optional_module``
+2D gating (clear error on a 1D-only model), and the ``IGNORE_2D`` engine
 option applied through ``SolverAdapter.set_option`` between open and
 initialize (the per-episode 1D-only fast path).
 
@@ -40,6 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
+from openswmm_gymnasium._engine import optional_module
 from openswmm_gymnasium.observations import ObservationBuilder
 
 from ._base import BaseEngineTest
@@ -62,16 +63,17 @@ class BaseEngine2DTest(BaseEngineTest):
 class TestSurface2DAdapter(BaseEngine2DTest):
     def test_surface2d_active_on_meshed_model(self) -> None:
         adapter = self.make_adapter(inp=self.minimal_2d_inp)
-        surf = adapter.surface2d
+        surf = optional_module(adapter, "surface2d")
+        self.assertIs(surf, adapter.solver.surface2d)
         self.assertTrue(surf.is_active)
         self.assertEqual(surf.n_vertices, N_2D_VERTICES)
-        depths = surf.vertex_render_depths()
+        depths = surf.get_vertex_render_depths()
         self.assertEqual(np.asarray(depths).shape, (N_2D_VERTICES,))
 
     def test_surface2d_raises_on_1d_only_model(self) -> None:
         adapter = self.make_adapter()  # minimal.inp — no [2D_*] sections
         with self.assertRaisesRegex(RuntimeError, "no active 2D surface"):
-            _ = adapter.surface2d
+            optional_module(adapter, "surface2d")
 
 
 class TestVertexDepthCollector(BaseEngine2DTest):
@@ -113,7 +115,7 @@ class TestCellFieldCollector(BaseEngine2DTest):
 
     def test_bulk_and_per_cell_reads_match_the_engine(self) -> None:
         adapter = self.make_adapter(inp=self.minimal_2d_inp)
-        n = adapter.surface2d.n_cells
+        n = adapter.solver.surface2d.n_cells
         cells = list(range(n))
         builder = (
             ObservationBuilder()
@@ -165,7 +167,7 @@ class TestCellFieldCollector(BaseEngine2DTest):
 
     def test_bind_rejects_out_of_range_cells(self) -> None:
         adapter = self.make_adapter(inp=self.minimal_2d_inp)
-        n = adapter.surface2d.n_cells
+        n = adapter.solver.surface2d.n_cells
         builder = ObservationBuilder().add_cell_field("surface2d.get_depths", [0, n])
         with self.assertRaisesRegex(ValueError, "out of range"):
             builder.bind(adapter)
@@ -186,7 +188,7 @@ class TestIgnore2DOption(BaseEngine2DTest):
         adapter.start()
         # The gated surface is inactive: 2D observations must refuse.
         with self.assertRaisesRegex(RuntimeError, "no active 2D surface"):
-            _ = adapter.surface2d
+            optional_module(adapter, "surface2d")
         # And the 1D episode still steps.
         adapter.step()
         self.assertGreaterEqual(adapter.elapsed, 0.0)

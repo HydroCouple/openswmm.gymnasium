@@ -57,7 +57,7 @@ from collections.abc import Sequence
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry
+from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry, optional_module
 
 
 class OrificeSetting:
@@ -133,7 +133,7 @@ class OrificeSetting:
         @param adapter: Adapter wrapping the open solver.
         @type adapter: L{SolverAdapter}
         """
-        self._link_idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._link_idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         """Push the sampled action value into the engine.
@@ -151,14 +151,14 @@ class OrificeSetting:
         # range and we'd rather silently clamp.
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, 1.0)
         for idx, v in zip(self._link_idxs, clipped, strict=True):
-            adapter.links.set_target_setting(idx, float(v))
+            adapter.write("link.target_setting", idx, float(v))
 
 
 class NodeLateralInflow:
     """Box action injecting a controllable lateral inflow at one or more nodes.
 
     Each component is a flow rate in C{[0, max_inflow]} (project flow units),
-    applied via C{adapter.nodes.set_lateral_inflow} (the engine's
+    written to the catalog field C{node.lateral_inflow} (the engine's
     ``swmm_node_set_lateral_inflow``). Useful for controllable sources,
     pumped diversions, or adversarial inflow scenarios in RL tasks.
 
@@ -221,7 +221,7 @@ class NodeLateralInflow:
         @param adapter: Adapter wrapping the open solver.
         @type adapter: L{SolverAdapter}
         """
-        self._node_idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+        self._node_idxs = [adapter.index("node", nid) for nid in self._node_ids]
 
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         """Push the sampled inflow values into the engine.
@@ -236,7 +236,7 @@ class NodeLateralInflow:
             raise RuntimeError("NodeLateralInflow.bind() must be called before apply()")
         clipped = np.clip(np.asarray(value, dtype=np.float32), 0.0, self._max_inflow)
         for idx, v in zip(self._node_idxs, clipped, strict=True):
-            adapter.nodes.set_lateral_inflow(idx, float(v))
+            adapter.write("node.lateral_inflow", idx, float(v))
 
 
 class FieldSetpoint:
@@ -333,7 +333,7 @@ class HeatSourceTemperatureSetpoint:
     Each component is a temperature in degrees Celsius, applied B{every env
     step} to a heat-source pathway (C{"DWF"}, C{"EXTERNAL_INFLOW"},
     C{"RAINFALL"}, C{"GW"}, C{"RDII"}, C{"IFACE"}, C{"INITIAL_STATE"}) via
-    C{adapter.heat.set_source_temp}. The engine documents these writes as
+    C{Solver.heat.sources}. The engine documents these writes as
     B{live}: the new value is picked up on the next routing step, which is
     what makes this a runtime actuator rather than a pre-initialize edit.
 
@@ -345,8 +345,8 @@ class HeatSourceTemperatureSetpoint:
     B{No observation counterpart exists.} The C API exposes no per-node or
     per-link water-temperature getter, so an agent driving this actuator
     cannot observe the temperature field it is acting on. Only two
-    heat-related scalars are readable at all — C{adapter.heat.current_shortwave}
-    and C{adapter.heat.current_cloud_fraction} — and both are forcing, not
+    heat-related scalars are readable at all — catalog C{heat.current_shortwave}
+    and C{heat.cloud.current} — and both are forcing, not
     state. Treat this as an open-loop / feed-forward actuator (or close the
     loop through a proxy such as flow split) until the engine grows a
     temperature reader.
@@ -362,7 +362,7 @@ class HeatSourceTemperatureSetpoint:
     unconverted.
 
     B{Requires} C{[OPTIONS] HEAT_TRANSPORT YES}; L{bind} raises with that
-    message otherwise.
+    message otherwise (via L{openswmm_gymnasium._engine.optional_module}).
 
     @ivar _sources: Heat-source pathway names supplied at construction.
     @type _sources: list[str]
@@ -444,7 +444,8 @@ class HeatSourceTemperatureSetpoint:
             open model does not enable C{HEAT_TRANSPORT}.
         @raise ValueError: If a name is not a heat-source pathway.
         """
-        known = set(adapter.heat.source_kinds())
+        # Compare by member name: configs never carry the engine's HeatSourceKind enum.
+        known = {str(getattr(s, "name", s)) for s in optional_module(adapter, "heat").sources}
         unknown = [s for s in self._sources if s not in known]
         if unknown:
             raise ValueError(
@@ -471,5 +472,6 @@ class HeatSourceTemperatureSetpoint:
         # unclipped stray value would leave the previous step's setpoint
         # silently in force rather than erroring.
         clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        sources = adapter.solver.heat.sources
         for source, v in zip(self._sources, clipped, strict=True):
-            adapter.heat.set_source_temp(source, float(v))
+            sources[source] = float(v)  # LIVE: takes effect on the next routing step

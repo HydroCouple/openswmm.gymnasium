@@ -243,10 +243,10 @@ class ControlCurveMetricReader:
                     f"asset {a.link_id!r}: unsupported obs_attr {a.obs_attr!r}; "
                     f"valid: {sorted(_NODE_OBS_GETTERS)}"
                 )
-            idx = adapter.nodes.get_index(a.obs_node)
+            idx = adapter.index("node", a.obs_node)
             divisor = 1.0
             if self._x_normalized:
-                divisor = float(adapter.nodes.get_max_depth(idx))
+                divisor = float(adapter.read("node.max_depth", idx))
                 if divisor <= 0.0:
                     # Degenerate geometry: fall back to raw value.
                     divisor = 1.0

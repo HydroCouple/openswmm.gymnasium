@@ -32,6 +32,7 @@ an engine-touching concern covered by the env integration tests.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -46,50 +47,59 @@ _LINK_CONC = {0: np.array([40.0, 50.0]), 1: np.array([4.0, 5.0])}
 _LINK_FLOW = {0: 2.0, 1: -3.0}
 
 
-class _FakePollutants:
-    _IDS = {"TSS": 0, "BOD": 1}
-
-    def get_index(self, pollutant_id: str) -> int:
-        try:
-            return self._IDS[pollutant_id]
-        except KeyError as exc:
-            raise KeyError(f"undefined pollutant {pollutant_id!r}") from exc
+_POLLUTANT_IDS = {"TSS": 0, "BOD": 1}
 
 
-class _FakeNodes:
-    def __init__(self) -> None:
-        self.bulk_reads = 0
+class _FakeElement:
+    """One C{solver.nodes[idx]} / C{solver.links[idx]} with a C{quality} reader."""
 
-    def get_index(self, node_id: str) -> int:
-        return _NODE_IDS.index(node_id)
+    def __init__(self, conc: dict[int, np.ndarray], idx: int) -> None:
+        self._conc = conc
+        self._idx = idx
 
-    def get_quality(self, idx: int, pollutant: int) -> float:
-        return float(_NODE_CONC[pollutant][idx])
-
-    def qualities(self, pollutant: int):
-        self.bulk_reads += 1
-        return _NODE_CONC[pollutant]
+    def quality(self, pollutant: int) -> float:
+        return float(self._conc[pollutant][self._idx])
 
 
-class _FakeLinks:
-    def get_index(self, link_id: str) -> int:
-        return _LINK_IDS.index(link_id)
+class _FakeCollection:
+    def __init__(self, conc: dict[int, np.ndarray]) -> None:
+        self._conc = conc
 
-    def get_flow(self, idx: int) -> float:
-        return _LINK_FLOW[idx]
-
-    def get_quality(self, idx: int, pollutant: int) -> float:
-        return float(_LINK_CONC[pollutant][idx])
-
-    def qualities(self, pollutant: int):
-        return _LINK_CONC[pollutant]
+    def __getitem__(self, idx: int) -> _FakeElement:
+        return _FakeElement(self._conc, idx)
 
 
 class _FakeAdapter:
+    """The adapter surface the collectors and C{TSSLoad} use.
+
+    C{index} / C{read} / C{call} by catalog path, plus C{solver.nodes} /
+    C{solver.links} for the per-element C{quality} reader.
+    """
+
+    _IDS = {"node": _NODE_IDS, "link": _LINK_IDS}
+    _BULK = {"nodes.qualities": _NODE_CONC, "links.qualities": _LINK_CONC}
+
     def __init__(self) -> None:
-        self.nodes = _FakeNodes()
-        self.links = _FakeLinks()
-        self.pollutants = _FakePollutants()
+        self.bulk_reads: dict[str, int] = {}
+        self.solver = SimpleNamespace(
+            nodes=_FakeCollection(_NODE_CONC), links=_FakeCollection(_LINK_CONC)
+        )
+
+    def index(self, kind: str, element_id: str) -> int:
+        if kind == "pollutant":
+            try:
+                return _POLLUTANT_IDS[element_id]
+            except KeyError as exc:
+                raise KeyError(f"undefined pollutant {element_id!r}") from exc
+        return self._IDS[kind].index(element_id)
+
+    def read(self, path: str, idx: int) -> float:
+        assert path == "link.flow", path
+        return _LINK_FLOW[idx]
+
+    def call(self, path: str, pollutant: int):
+        self.bulk_reads[path] = self.bulk_reads.get(path, 0) + 1
+        return self._BULK[path][pollutant]
 
 
 # -----------------------------------------------------------------------------
@@ -127,7 +137,7 @@ class TestPollutantCollectors(unittest.TestCase):
         a = _FakeAdapter()
         b.bind(a)
         b.collect(a)
-        self.assertEqual(a.nodes.bulk_reads, 1)
+        self.assertEqual(a.bulk_reads, {"nodes.qualities": 1})
 
     def test_output_is_float32(self):
         b = ObservationBuilder().add_pollutant_concentration(["J1"], "TSS")

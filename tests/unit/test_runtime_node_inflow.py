@@ -51,48 +51,42 @@ class TestConstruction(unittest.TestCase):
             NodeLateralInflow(["J1"], max_inflow=0.0)
 
 
-class _FakeNodes:
-    """Minimal stand-in with the real ``_NodesCompat`` attribute layout."""
-
-    def __init__(self) -> None:
-        self.applied: dict[int, float] = {}
-
-    def get_index(self, node_id: str) -> int:
-        return {"J1": 0, "J2": 1}[node_id]
-
-    def set_lateral_inflow(self, idx: int, value: float) -> None:
-        self.applied[idx] = value
-
-
 class _FakeAdapter:
-    """Adapter shape without the scalar setters -- they live on the collections.
+    """The adapter surface the factory uses: catalog C{index} and C{write}.
 
-    Deliberately does **not** define ``set_lateral_inflow``: the real
-    ``SolverAdapter`` doesn't either, and there is no ``__getattr__``
-    delegation. ``apply`` reaching for it directly raised ``AttributeError``
-    until the call was routed through ``adapter.nodes``.
+    Deliberately has no C{set_lateral_inflow} and no node collection: the
+    real C{SolverAdapter} has neither, and there is no C{__getattr__}
+    delegation, so C{apply} must write the catalog field
+    C{node.lateral_inflow}.
     """
 
     def __init__(self) -> None:
-        self.nodes = _FakeNodes()
+        self.written: dict[str, dict[int, float]] = {}
+
+    def index(self, kind: str, element_id: str) -> int:
+        assert kind == "node", kind
+        return {"J1": 0, "J2": 1}[element_id]
+
+    def write(self, path: str, idx: int, value: float) -> None:
+        self.written.setdefault(path, {})[idx] = value
 
 
 class TestApplyDelegation(unittest.TestCase):
-    """Engine-free guard on the collection the setter is reached through."""
+    """Engine-free guard on the catalog field the setter writes."""
 
-    def test_apply_goes_through_the_nodes_collection(self):
+    def test_apply_writes_the_lateral_inflow_field(self):
         adapter = _FakeAdapter()
         f = NodeLateralInflow(["J1", "J2"], max_inflow=10.0)
         f.bind(adapter)
         f.apply(adapter, np.array([2.5, 7.5], dtype=np.float32))
-        self.assertEqual(adapter.nodes.applied, {0: 2.5, 1: 7.5})
+        self.assertEqual(adapter.written, {"node.lateral_inflow": {0: 2.5, 1: 7.5}})
 
     def test_values_are_clipped_to_the_action_range(self):
         adapter = _FakeAdapter()
         f = NodeLateralInflow(["J1", "J2"], max_inflow=5.0)
         f.bind(adapter)
         f.apply(adapter, np.array([-3.0, 99.0], dtype=np.float32))
-        self.assertEqual(adapter.nodes.applied, {0: 0.0, 1: 5.0})
+        self.assertEqual(adapter.written, {"node.lateral_inflow": {0: 0.0, 1: 5.0}})
 
     def test_apply_before_bind_raises(self):
         f = NodeLateralInflow(["J1"], max_inflow=1.0)
@@ -106,9 +100,10 @@ class TestApply(BaseEngineTest):
         f = NodeLateralInflow(["J1"], max_inflow=10.0)
         f.bind(adapter)
         f.apply(adapter, np.array([2.5], dtype=np.float32))
-        idx = adapter.nodes.get_index("J1")
+        idx = adapter.index("node", "J1")
         # swmm_node_set_lateral_inflow writes the override to user_lat_flow;
-        # get_lateral_inflow reads lat_flow, which routing folds the override
-        # into. The read-back is therefore only meaningful after a step.
+        # the node.lateral_inflow read returns lat_flow, which routing folds
+        # the override into. The read-back is therefore only meaningful after
+        # a step.
         adapter.step()
-        self.assertAlmostEqual(adapter.nodes.get_lateral_inflow(idx), 2.5, places=4)
+        self.assertAlmostEqual(adapter.read("node.lateral_inflow", idx), 2.5, places=4)

@@ -104,11 +104,13 @@ class MarketMetricReader:
         probes: list[_AgentProbe] = []
         for a in self._agents:
             if a.element_type == "node" and a.stress_metric in _NODE_METRICS:
-                idx = adapter.nodes.get_index(a.id)
-                divisor = float(adapter.nodes.get_max_depth(idx))
+                idx = adapter.index("node", a.id)
+                divisor = float(adapter.read("node.max_depth", idx))
             elif a.element_type == "link" and a.stress_metric in _LINK_METRICS:
-                idx = adapter.links.get_index(a.id)
-                divisor = float(adapter.links.get_full_depth(idx))
+                idx = adapter.index("link", a.id)
+                # True rise from the engine's analytic cross-section geometry
+                # (exact for every shape, unlike geom1).
+                divisor = float(adapter.solver.links[idx].xsect.geometry().full_depth)
             else:
                 raise ValueError(
                     f"agent {a.id!r}: stress_metric {a.stress_metric!r} is not "
@@ -123,10 +125,9 @@ class MarketMetricReader:
         """Return C{{agent_id: stress in [0,1]}} for the current solver state."""
         assert self._probes is not None, "bind() before read()"
         out: dict[str, float] = {}
-        node_depth = adapter.nodes.get_depth
-        link_depth = adapter.links.get_depth
+        read = adapter.read
         for p in self._probes:
-            raw = node_depth(p.idx) if p.element_type == "node" else link_depth(p.idx)
+            raw = read("node.depth" if p.element_type == "node" else "link.depth", p.idx)
             stress = float(raw) / p.divisor
             out[p.agent_id] = 0.0 if stress < 0.0 else 1.0 if stress > 1.0 else stress
         return out

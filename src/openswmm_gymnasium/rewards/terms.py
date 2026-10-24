@@ -145,7 +145,7 @@ class FloodingVolume:
 
     Read from the engine's cumulative per-node flooding statistic
     (C{swmm_node_get_stat_vol_flooded}, exposed as
-    L{SolverAdapter.statistics}): the contribution of one env step is the
+    C{Solver.statistics.node_vol_flooded_at}): the contribution of one env step is the
     B{increase} in that statistic since the previous step. If C{node_ids}
     is C{None}, all nodes in the model contribute.
 
@@ -184,9 +184,9 @@ class FloodingVolume:
 
     def bind(self, adapter: SolverAdapter) -> None:
         if self._node_ids is None:
-            self._idxs = list(range(adapter.nodes.count()))
+            self._idxs = list(range(len(adapter.solver.nodes)))
         else:
-            self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+            self._idxs = [adapter.index("node", nid) for nid in self._node_ids]
 
     def reset(self) -> None:
         """Drop the cumulative-statistic baseline from the prior episode."""
@@ -194,7 +194,7 @@ class FloodingVolume:
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None, "bind() before step()"
-        get = adapter.statistics.node_vol_flooded
+        get = adapter.solver.statistics.node_vol_flooded_at
         total = 0.0
         for idx in self._idxs:
             total += float(get(idx))
@@ -287,7 +287,7 @@ class PeakOutflow:
         self._peak: list[float] | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def reset(self) -> None:
         self._peak = [0.0] * len(self._link_ids)
@@ -295,7 +295,7 @@ class PeakOutflow:
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None and self._peak is not None, "bind() before step()"
         increment = 0.0
-        get = adapter.statistics.link_max_flow
+        get = adapter.solver.statistics.link_max_flow_at
         for i, idx in enumerate(self._idxs):
             mag = float(get(idx))
             if mag > self._peak[i]:
@@ -313,9 +313,9 @@ class TSSLoad:
     """Pollutant mass flux through a set of links, per env step.
 
     Computed as C{sum_i max(0, flow_i) * concentration_i * dt_seconds} over
-    the supplied links, where C{flow} is the link flow
-    (L{openswmm.engine.Links} state) and C{concentration} is that link's
-    concentration of C{pollutant} (L{openswmm.engine.Links.quality}).
+    the supplied links, where C{flow} is the link flow (catalog C{link.flow})
+    and C{concentration} is that link's concentration of C{pollutant}
+    (L{openswmm.engine.Link.quality}).
     Only positive flow — toward the link's downstream node — contributes,
     matching L{UncontrolledDischarge}; reversed flow is ignored rather
     than credited back.
@@ -373,22 +373,22 @@ class TSSLoad:
         self._pollutant_idx: int | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
-        self._pollutant_idx = adapter.pollutants.get_index(self._pollutant)
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
+        self._pollutant_idx = adapter.index("pollutant", self._pollutant)
 
     def reset(self) -> None:
         """No cross-step state; no-op."""
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None, "bind() before step()"
-        get_flow = adapter.links.get_flow
-        get_quality = adapter.links.get_quality
+        read = adapter.read
+        links = adapter.solver.links
         p = self._pollutant_idx
         flux = 0.0
         for idx in self._idxs:
-            q = float(get_flow(idx))
+            q = float(read("link.flow", idx))
             if q > 0.0:
-                conc = float(get_quality(idx, p))
+                conc = float(links[idx].quality(p))
                 if conc > 0.0:
                     flux += q * conc
         return flux * dt_seconds
@@ -434,21 +434,21 @@ class ReliabilityMargin:
 
     def bind(self, adapter: SolverAdapter) -> None:
         if self._node_ids is None:
-            self._idxs = list(range(adapter.nodes.count()))
+            self._idxs = list(range(len(adapter.solver.nodes)))
         else:
-            self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
+            self._idxs = [adapter.index("node", nid) for nid in self._node_ids]
         # max_depth is a model-constant, cache once.
-        self._max_depths = [float(adapter.nodes.get_max_depth(i)) for i in self._idxs]
+        self._max_depths = [float(adapter.read("node.max_depth", i)) for i in self._idxs]
 
     def reset(self) -> None:
         """No cross-step state; no-op."""
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None and self._max_depths is not None, "bind() before step()"
-        get = adapter.nodes.get_depth
+        read = adapter.read
         min_fb = float("inf")
         for idx, md in zip(self._idxs, self._max_depths, strict=True):
-            fb = md - float(get(idx))
+            fb = md - float(read("node.depth", idx))
             if fb < min_fb:
                 min_fb = fb
         return max(0.0, min_fb)
@@ -496,15 +496,14 @@ class SetpointSmoothness:
         self._prev: list[float] | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def reset(self) -> None:
         self._prev = None
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None, "bind() before step()"
-        get = adapter.links.get_control_setting
-        current = [float(get(i)) for i in self._idxs]
+        current = [float(adapter.read("link.control_setting", i)) for i in self._idxs]
         if self._prev is None:
             self._prev = current
             return 0.0
@@ -564,17 +563,17 @@ class UncontrolledDischarge:
         self._idxs: list[int] | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def reset(self) -> None:
         """No cross-step state; no-op."""
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None, "bind() before step()"
-        get = adapter.links.get_flow
+        read = adapter.read
         rate_sum = 0.0
         for idx in self._idxs:
-            q = float(get(idx))
+            q = float(read("link.flow", idx))
             if q > 0.0:
                 rate_sum += q
         return rate_sum * dt_seconds
@@ -625,20 +624,20 @@ class StorageUnderUtilization:
         self._max_depths: list[float] | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.nodes.get_index(nid) for nid in self._node_ids]
-        self._max_depths = [float(adapter.nodes.get_max_depth(i)) for i in self._idxs]
+        self._idxs = [adapter.index("node", nid) for nid in self._node_ids]
+        self._max_depths = [float(adapter.read("node.max_depth", i)) for i in self._idxs]
 
     def reset(self) -> None:
         """No cross-step state; no-op."""
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None and self._max_depths is not None, "bind() before step()"
-        get = adapter.nodes.get_depth
+        read = adapter.read
         headroom = 0.0
         for idx, md in zip(self._idxs, self._max_depths, strict=True):
             if md <= 0.0:
                 continue
-            fill = float(get(idx)) / md
+            fill = float(read("node.depth", idx)) / md
             unused = 1.0 - fill
             if unused > 0.0:
                 headroom += unused
@@ -650,7 +649,7 @@ class PumpEnergy:
 
     Computed as C{sum_i setting_i * rated_power_i * dt_seconds}, where
     C{setting} is the pump's control setting in [0,1]
-    (L{openswmm.engine.Links.get_control_setting}) — the fraction-on / relative
+    (catalog C{link.control_setting}) — the fraction-on / relative
     speed — and C{rated_power} is a per-pump constant (default 1.0). With the
     default this is on-time-weighted effort (∫ setting dt); supply
     C{rated_power} in consistent power units to obtain energy. A flow×head
@@ -691,7 +690,7 @@ class PumpEnergy:
         self._powers: list[float] | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
         self._powers = [float(self._rated_power.get(lid, 1.0)) for lid in self._link_ids]
 
     def reset(self) -> None:
@@ -699,10 +698,10 @@ class PumpEnergy:
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None and self._powers is not None, "bind() before step()"
-        get = adapter.links.get_control_setting
+        read = adapter.read
         effort = 0.0
         for idx, power in zip(self._idxs, self._powers, strict=True):
-            setting = float(get(idx))
+            setting = float(read("link.control_setting", idx))
             if setting > 0.0:
                 effort += setting * power
         return effort * dt_seconds
@@ -748,8 +747,8 @@ class SurchargeSlotShare:
     0; one that runs full and under head scores near 1.
 
     The term reads the engine's B{run-level} statistic
-    C{swmm_link_get_stat_slot_share}, exposed as
-    C{adapter.links.slot_share}: the ratio of time integrals
+    C{swmm_link_get_stat_slot_share}, exposed as catalog
+    C{link.stats.slot_share}: the ratio of time integrals
     C{(int slot_volume dt) / (int volume dt)} over the run so far. That is
     B{not} an average of instantaneous ratios, and it is B{not}
     reconstructible in Python from env-step samples — sampling
@@ -851,7 +850,7 @@ class SurchargeSlotShare:
                 "(e.g. link surcharge time, or node depth against crown "
                 "elevation)."
             )
-        self._idxs = [adapter.links.get_index(lid) for lid in self._link_ids]
+        self._idxs = [adapter.index("link", lid) for lid in self._link_ids]
 
     def reset(self) -> None:
         """Drop the running-maximum envelope from the prior episode."""
@@ -859,10 +858,10 @@ class SurchargeSlotShare:
 
     def step(self, adapter: SolverAdapter, dt_seconds: float) -> float:
         assert self._idxs is not None, "bind() before step()"
-        get = adapter.links.slot_share
+        read = adapter.read
         total = 0.0
         for idx in self._idxs:
-            total += float(get(idx))
+            total += float(read("link.stats.slot_share", idx))
         share = total / len(self._idxs)
         if share > self._peak:
             increment = share - self._peak

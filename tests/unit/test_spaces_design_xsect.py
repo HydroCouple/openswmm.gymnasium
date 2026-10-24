@@ -55,48 +55,66 @@ _SECTIONS = {
 }
 
 
+class _FakeXSection:
+    """Read side of the engine's C{Link.xsect} view for one fixture section."""
+
+    def __init__(self, section) -> None:
+        self._name, self._code, self._geoms, self._rise = section
+
+    def as_tuple(self) -> tuple:
+        return (self._code, *self._geoms)
+
+    def info(self):
+        return SimpleNamespace(shape_name=self._name)
+
+    def geometry(self):
+        return SimpleNamespace(full_depth=self._rise)
+
+
+class _FakeLink:
+    """One C{solver.links[idx]}; assigning C{xsect} records the write."""
+
+    def __init__(self, links: _FakeLinks, idx: int) -> None:
+        self._links = links
+        self._idx = idx
+
+    @property
+    def xsect(self) -> _FakeXSection:
+        return _FakeXSection(_SECTIONS[self._links.order[self._idx]])
+
+    @xsect.setter
+    def xsect(self, value: tuple) -> None:
+        shape, g1, g2, g3, g4 = value
+        self._links.applied.append(
+            (self._idx, shape, round(g1, 6), round(g2, 6), round(g3, 6), round(g4, 6))
+        )
+
+
 class _FakeLinks:
-    """Minimal stand-in with the real ``_LinksCompat`` attribute layout."""
+    """Stand-in for C{solver.links} over the fixture sections."""
 
     def __init__(self) -> None:
-        self._order = list(_SECTIONS)
+        self.order = list(_SECTIONS)
         self.applied: list[tuple] = []
         self.depth: dict[int, float] = {}
 
-    def get_index(self, link_id: str) -> int:
-        return self._order.index(link_id)
-
-    def _section(self, idx: int):
-        return _SECTIONS[self._order[idx]]
-
-    def get_xsect(self, idx: int) -> tuple:
-        _name, code, geoms, _rise = self._section(idx)
-        return (code, *geoms)
-
-    def get_xsect_shape_name(self, idx: int) -> str:
-        return self._section(idx)[0]
-
-    def get_full_depth(self, idx: int) -> float:
-        return self._section(idx)[3]
-
-    def set_xsect(self, idx, shape, g1, g2, g3, g4) -> None:
-        self.applied.append((idx, shape, round(g1, 6), round(g2, 6), round(g3, 6), round(g4, 6)))
-
-    def get_depth(self, idx: int) -> float:
-        return self.depth[idx]
-
-
-class _FakeNodes:
-    """Present but unused — L{MarketMetricReader.read} looks it up eagerly."""
-
-    def get_depth(self, idx: int) -> float:  # pragma: no cover - no node agents
-        raise AssertionError("no node agents in these fixtures")
+    def __getitem__(self, idx: int) -> _FakeLink:
+        return _FakeLink(self, idx)
 
 
 class _FakeAdapter:
+    """The adapter surface these consumers use: C{index}, C{read}, C{solver.links}."""
+
     def __init__(self) -> None:
-        self.links = _FakeLinks()
-        self.nodes = _FakeNodes()
+        self.solver = SimpleNamespace(links=_FakeLinks())
+
+    def index(self, kind: str, element_id: str) -> int:
+        assert kind == "link", kind  # no node agents in these fixtures
+        return self.solver.links.order.index(element_id)
+
+    def read(self, path: str, idx: int) -> float:
+        assert path == "link.depth", path
+        return self.solver.links.depth[idx]
 
 
 class TestCircularUnchanged(unittest.TestCase):
@@ -107,7 +125,7 @@ class TestCircularUnchanged(unittest.TestCase):
         f = LinkDiameter(["C_CIRC"], low=1.0, high=6.0)
         f.bind(a)
         f.apply(a, np.array([3.0], dtype=np.float32))
-        self.assertEqual(a.links.applied, [(0, 0, 3.0, 0.0, 0.0, 0.0)])
+        self.assertEqual(a.solver.links.applied, [(0, 0, 3.0, 0.0, 0.0, 0.0)])
 
 
 class TestShapeAwareScaling(unittest.TestCase):
@@ -118,7 +136,7 @@ class TestShapeAwareScaling(unittest.TestCase):
         f.bind(a)
         f.apply(a, np.array([2.0], dtype=np.float32))
         # rise 4 -> 2 halves the section: 8 ft wide becomes 4 ft wide.
-        self.assertEqual(a.links.applied, [(1, 2, 2.0, 4.0, 0.0, 0.0)])
+        self.assertEqual(a.solver.links.applied, [(1, 2, 2.0, 4.0, 0.0, 0.0)])
 
     def test_trapezoid_scales_bottom_width_but_not_side_slopes(self):
         a = _FakeAdapter()
@@ -126,7 +144,7 @@ class TestShapeAwareScaling(unittest.TestCase):
         f.bind(a)
         f.apply(a, np.array([10.0], dtype=np.float32))
         # Side slopes are dimensionless (run/rise) and must survive verbatim.
-        self.assertEqual(a.links.applied, [(2, 4, 10.0, 20.0, 2.0, 3.0)])
+        self.assertEqual(a.solver.links.applied, [(2, 4, 10.0, 20.0, 2.0, 3.0)])
 
     def test_value_is_the_rise_not_geom1(self):
         """FILLED_CIRCULAR: rise = diameter - filled depth, so geom1 != rise."""
@@ -136,7 +154,7 @@ class TestShapeAwareScaling(unittest.TestCase):
         f.apply(a, np.array([6.0], dtype=np.float32))
         # Baseline rise 3.0 -> factor 2.0: diameter 4->8, filled depth 1->2,
         # so the new rise is 8 - 2 == 6, the value asked for.
-        applied = a.links.applied[0]
+        applied = a.solver.links.applied[0]
         self.assertEqual(applied, (3, 1, 8.0, 2.0, 0.0, 0.0))
         self.assertAlmostEqual(applied[2] - applied[3], 6.0)
 
@@ -146,7 +164,7 @@ class TestShapeAwareScaling(unittest.TestCase):
         f.bind(a)
         f.apply(a, np.array([4.0, 8.0], dtype=np.float32))
         self.assertEqual(
-            a.links.applied,
+            a.solver.links.applied,
             [(0, 0, 4.0, 0.0, 0.0, 0.0), (1, 2, 8.0, 16.0, 0.0, 0.0)],
         )
 
@@ -155,7 +173,7 @@ class TestShapeAwareScaling(unittest.TestCase):
         f = LinkDiameter(["C_BOX"], low=2.0, high=6.0)
         f.bind(a)
         f.apply(a, np.array([99.0], dtype=np.float32))
-        self.assertEqual(a.links.applied, [(1, 2, 6.0, 12.0, 0.0, 0.0)])
+        self.assertEqual(a.solver.links.applied, [(1, 2, 6.0, 12.0, 0.0, 0.0)])
 
 
 class TestUnsizableShapes(unittest.TestCase):
@@ -196,17 +214,17 @@ class TestFillingRatioIsExact(unittest.TestCase):
         reader = self._reader("C_FILLED")
         reader.bind(a)
         # Rise is 3.0 (geom1 4.0 would report 0.375 instead).
-        a.links.depth[a.links.get_index("C_FILLED")] = 1.5
+        a.solver.links.depth[a.index("link", "C_FILLED")] = 1.5
         self.assertAlmostEqual(reader.read(a)["C_FILLED"], 0.5)
 
     def test_stress_is_clamped_to_unit_interval(self):
         a = _FakeAdapter()
         reader = self._reader("C_BOX")
         reader.bind(a)
-        idx = a.links.get_index("C_BOX")
-        a.links.depth[idx] = 99.0
+        idx = a.index("link", "C_BOX")
+        a.solver.links.depth[idx] = 99.0
         self.assertEqual(reader.read(a)["C_BOX"], 1.0)
-        a.links.depth[idx] = -1.0
+        a.solver.links.depth[idx] = -1.0
         self.assertEqual(reader.read(a)["C_BOX"], 0.0)
 
 

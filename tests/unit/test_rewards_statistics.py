@@ -31,46 +31,35 @@ per-step contribution is what these tests pin.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from openswmm_gymnasium.rewards import CSOVolume, FloodingVolume, PeakOutflow
 
 
 class _FakeStatistics:
-    """Scriptable stand-in for L{_StatisticsCompat} (cumulative values)."""
+    """Scriptable stand-in for C{Solver.statistics} (cumulative values)."""
 
     def __init__(self) -> None:
         self.flooded: dict[int, float] = {0: 0.0, 1: 0.0}
         self.max_flow: dict[int, float] = {0: 0.0, 1: 0.0}
 
-    def node_vol_flooded(self, idx: int) -> float:
+    def node_vol_flooded_at(self, idx: int) -> float:
         return self.flooded[idx]
 
-    def link_max_flow(self, idx: int) -> float:
+    def link_max_flow_at(self, idx: int) -> float:
         return self.max_flow[idx]
 
 
-class _FakeNodes:
-    _IDS = {"J1": 0, "J2": 1}
-
-    def count(self) -> int:
-        return len(self._IDS)
-
-    def get_index(self, node_id: str) -> int:
-        return self._IDS[node_id]
-
-
-class _FakeLinks:
-    _IDS = {"C1": 0, "C2": 1}
-
-    def get_index(self, link_id: str) -> int:
-        return self._IDS[link_id]
-
-
 class _FakeAdapter:
+    """Catalog C{index} plus C{solver.nodes} (for its length) and C{solver.statistics}."""
+
+    _IDS = {"node": {"J1": 0, "J2": 1}, "link": {"C1": 0, "C2": 1}}
+
     def __init__(self) -> None:
-        self.nodes = _FakeNodes()
-        self.links = _FakeLinks()
-        self.statistics = _FakeStatistics()
+        self.solver = SimpleNamespace(nodes=list(self._IDS["node"]), statistics=_FakeStatistics())
+
+    def index(self, kind: str, element_id: str) -> int:
+        return self._IDS[kind][element_id]
 
 
 class TestFloodingVolume(unittest.TestCase):
@@ -79,7 +68,7 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 25.0
+        a.solver.statistics.flooded[0] = 25.0
         self.assertAlmostEqual(term.step(a, 300.0), 25.0)
 
     def test_later_steps_return_the_increment_only(self):
@@ -87,9 +76,9 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 25.0
+        a.solver.statistics.flooded[0] = 25.0
         term.step(a, 300.0)
-        a.statistics.flooded[0] = 40.0
+        a.solver.statistics.flooded[0] = 40.0
         self.assertAlmostEqual(term.step(a, 300.0), 15.0)
 
     def test_a_dry_step_contributes_zero(self):
@@ -97,7 +86,7 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 25.0
+        a.solver.statistics.flooded[0] = 25.0
         term.step(a, 300.0)
         self.assertEqual(term.step(a, 300.0), 0.0)
 
@@ -108,7 +97,7 @@ class TestFloodingVolume(unittest.TestCase):
         term.reset()
         total = 0.0
         for reading in (5.0, 12.0, 12.0, 30.0):
-            a.statistics.flooded[0] = reading
+            a.solver.statistics.flooded[0] = reading
             total += term.step(a, 60.0)
         self.assertAlmostEqual(total, 30.0)
 
@@ -117,8 +106,8 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1", "J2"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 5.0
-        a.statistics.flooded[1] = 7.0
+        a.solver.statistics.flooded[0] = 5.0
+        a.solver.statistics.flooded[1] = 7.0
         self.assertAlmostEqual(term.step(a, 60.0), 12.0)
 
     def test_none_node_ids_covers_every_node(self):
@@ -126,7 +115,7 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume()
         term.bind(a)
         term.reset()
-        a.statistics.flooded[1] = 9.0
+        a.solver.statistics.flooded[1] = 9.0
         self.assertAlmostEqual(term.step(a, 60.0), 9.0)
 
     def test_reset_drops_the_previous_episode_baseline(self):
@@ -134,11 +123,11 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 25.0
+        a.solver.statistics.flooded[0] = 25.0
         term.step(a, 60.0)
         # New episode: the engine's accumulator restarts from zero.
         term.reset()
-        a.statistics.flooded[0] = 4.0
+        a.solver.statistics.flooded[0] = 4.0
         self.assertAlmostEqual(term.step(a, 60.0), 4.0)
 
     def test_contribution_is_independent_of_dt(self):
@@ -147,7 +136,7 @@ class TestFloodingVolume(unittest.TestCase):
         term = FloodingVolume(["J1"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[0] = 10.0
+        a.solver.statistics.flooded[0] = 10.0
         self.assertAlmostEqual(term.step(a, 1.0), 10.0)
 
     def test_cso_volume_inherits_the_statistic_path(self):
@@ -155,7 +144,7 @@ class TestFloodingVolume(unittest.TestCase):
         term = CSOVolume(["J2"])
         term.bind(a)
         term.reset()
-        a.statistics.flooded[1] = 3.5
+        a.solver.statistics.flooded[1] = 3.5
         self.assertAlmostEqual(term.step(a, 60.0), 3.5)
 
 
@@ -165,9 +154,9 @@ class TestPeakOutflow(unittest.TestCase):
         term = PeakOutflow(["C1"])
         term.bind(a)
         term.reset()
-        a.statistics.max_flow[0] = 4.0
+        a.solver.statistics.max_flow[0] = 4.0
         self.assertAlmostEqual(term.step(a, 60.0), 4.0)
-        a.statistics.max_flow[0] = 6.5
+        a.solver.statistics.max_flow[0] = 6.5
         self.assertAlmostEqual(term.step(a, 60.0), 2.5)
 
     def test_no_new_peak_contributes_zero(self):
@@ -175,7 +164,7 @@ class TestPeakOutflow(unittest.TestCase):
         term = PeakOutflow(["C1"])
         term.bind(a)
         term.reset()
-        a.statistics.max_flow[0] = 4.0
+        a.solver.statistics.max_flow[0] = 4.0
         term.step(a, 60.0)
         self.assertEqual(term.step(a, 60.0), 0.0)
 
@@ -186,8 +175,8 @@ class TestPeakOutflow(unittest.TestCase):
         term.reset()
         total = 0.0
         for f0, f1 in ((1.0, 0.5), (3.0, 0.5), (3.0, 2.0)):
-            a.statistics.max_flow[0] = f0
-            a.statistics.max_flow[1] = f1
+            a.solver.statistics.max_flow[0] = f0
+            a.solver.statistics.max_flow[1] = f1
             total += term.step(a, 60.0)
         self.assertAlmostEqual(total, 5.0)
 

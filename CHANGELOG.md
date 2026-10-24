@@ -56,8 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Dict({"runtime": ...})` and a CIP env's `Dict({"design": ...})`; the joint
   env keeps both. Code that indexed `action_space["design"]` on an RTC env must
   use `.get`.
-- The private adapter's node, link, subcatchment and pollutant shims keep their
-  interface but read and write through catalog field paths.
+- **The private adapter's scalar shims are removed.** `SolverAdapter.nodes`,
+  `.links`, `.controls`, `.subcatchments`, `.infrastructure`, `.inflows`,
+  `.pollutants`, `.tables`, `.statistics`, `.surface2d`, `.heat`, `.water_age`
+  and `.reactions` are gone. Custom components resolve ids with
+  `adapter.index(kind, id)`, read and write fields by catalog path with
+  `adapter.read` / `write` / `read_all` / `call`, and use the real engine API on
+  `adapter.solver` for anything that is not one field. The optional 2D, heat,
+  water-age and reaction modules come from `optional_module(adapter, name)`,
+  which keeps the two-tier (build, then model) guard and its messages.
+  Observations, rewards and factories produce the same values.
 
 ### Added — any engine field as an observation or an action
 

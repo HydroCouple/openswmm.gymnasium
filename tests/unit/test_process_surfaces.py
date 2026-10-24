@@ -27,7 +27,8 @@ that can go wrong silently:
 
   1. A factory writing to a module the B{model} never runs — configured
      and stored, never routed, no error, no reward movement. Guarded by
-     C{SolverAdapter.heat} / C{.water_age} (two-tier: build then model).
+     C{optional_module(adapter, "heat")} / C{"water_age"} (two-tier: build
+     then model).
   2. L{SurchargeSlotShare} reading a hard 0.0 because the model uses a
      non-finite-volume router, which is indistinguishable from a genuinely
      unpressurized network.
@@ -35,11 +36,12 @@ that can go wrong silently:
      declared fixed.
 
 Factory / term logic runs against hand-rolled fakes at module scope (never
-C{unittest.mock}), so it needs no compiled engine. The two-tier guards
-themselves need a real solver and live in L{TestOptionalSurfaceGuards},
-which is skipped when the installed engine lacks the optional modules —
-the first use of that idiom in this suite, mirroring the accessor-level
-probes in C{solver_adapter.py}.
+C{unittest.mock}) standing in for the adapter and the engine modules it
+hands out, so it needs no open model. The two-tier guards themselves need
+a real solver and live in L{TestOptionalSurfaceGuards}, which is skipped
+when the installed engine lacks the optional modules — the first use of
+that idiom in this suite, mirroring the build-tier probes in
+C{solver_adapter.optional_module}.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -48,11 +50,14 @@ probes in C{solver_adapter.py}.
 
 from __future__ import annotations
 
+import enum
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 import openswmm.engine as _engine
 
+from openswmm_gymnasium._engine import optional_module
 from openswmm_gymnasium.rewards import RewardRegistry, SurchargeSlotShare
 from openswmm_gymnasium.spaces.design import (
     HeatSourceTemperature,
@@ -75,25 +80,25 @@ _SOURCE_PATHWAYS = (
 )
 
 
-class _FakeLinks:
-    """Link collection reporting scripted Preissmann-slot shares."""
+#: Engine-style source-pathway enum (members carry C{.name}, like
+#: C{HeatSourceKind} / C{WaterAgeSource}).
+_Pathway = enum.Enum("_Pathway", _SOURCE_PATHWAYS)
 
-    def __init__(self, shares: list[list[float]]) -> None:
-        # shares[step][link_idx]; the last row repeats once exhausted.
-        self._shares = shares
-        self._step = -1
-        self.reads = 0
 
-    def get_index(self, link_id: str) -> int:
-        return _LINK_IDS.index(link_id)
+class _FakeSources:
+    """Pathway-keyed mapping like C{Heat.sources} / C{WaterAge.globals}.
 
-    def advance(self) -> None:
-        self._step += 1
+    Iterates the pathway enum; item assignment records C{(pathway, value)}.
+    """
 
-    def slot_share(self, idx: int) -> float:
-        self.reads += 1
-        row = self._shares[min(self._step, len(self._shares) - 1)]
-        return float(row[idx])
+    def __init__(self, writes: list[tuple[str, float]]) -> None:
+        self._writes = writes
+
+    def __iter__(self):
+        return iter(_Pathway)
+
+    def __setitem__(self, source: str, value: float) -> None:
+        self._writes.append((source, float(value)))
 
 
 class _FakeHeat:
@@ -102,12 +107,7 @@ class _FakeHeat:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self.writes: list[tuple[str, float]] = []
-
-    def source_kinds(self) -> list[str]:
-        return list(_SOURCE_PATHWAYS)
-
-    def set_source_temp(self, source: str, temp_c: float) -> None:
-        self.writes.append((source, float(temp_c)))
+        self.sources = _FakeSources(self.writes)
 
 
 class _FakeWaterAge:
@@ -116,35 +116,24 @@ class _FakeWaterAge:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self.writes: list[tuple[str, float]] = []
-
-    def source_pathways(self) -> list[str]:
-        return list(_SOURCE_PATHWAYS)
-
-    def set_source_age(self, source: str, hours: float) -> None:
-        self.writes.append((source, float(hours)))
+        self.globals = _FakeSources(self.writes)
 
 
 class _FakeReactions:
     """Reaction module with two PARAMETERs and one CONSTANT."""
 
-    _PARAMS = {"kd": True, "ks": True, "yield_fixed": False}
+    PARAMS = {"kd": True, "ks": True, "yield_fixed": False}
 
     def __init__(self) -> None:
         self.values: dict[str, float] = {"kd": 0.1, "ks": 2.0, "yield_fixed": 0.5}
-
-    def coefficient_names(self) -> list[str]:
-        return list(self._PARAMS)
-
-    def is_coefficient_param(self, name: str) -> bool:
-        return self._PARAMS[name]
-
-    def set_coefficient(self, name: str, value: float) -> None:
-        self.values[name] = float(value)
+        self.coefficients = [SimpleNamespace(name=name) for name in self.PARAMS]
 
 
 class _FakeAdapter:
     """Minimal stand-in for L{SolverAdapter}.
 
+    Catalog C{index} / C{read} / C{write} over scripted link slot shares and
+    the reaction coefficients; C{solver} carries the optional modules.
     C{options} drives L{get_option}; a key mapped to C{None} raises, which
     is how an engine that will not report the router is simulated.
     """
@@ -157,11 +146,32 @@ class _FakeAdapter:
         heat_enabled: bool = True,
         water_age_enabled: bool = True,
     ) -> None:
-        self.links = _FakeLinks(shares or [[0.0, 0.0]])
+        # shares[step][link_idx]; the last row repeats once exhausted.
+        self._shares = shares or [[0.0, 0.0]]
+        self._step = -1
         self._options = options if options is not None else {"FLOW_ROUTING": "FV"}
-        self.heat = _FakeHeat(heat_enabled)
-        self.water_age = _FakeWaterAge(water_age_enabled)
-        self.reactions = _FakeReactions()
+        self.solver = SimpleNamespace(
+            heat=_FakeHeat(heat_enabled),
+            water_age=_FakeWaterAge(water_age_enabled),
+            reactions=_FakeReactions(),
+        )
+
+    def advance(self) -> None:
+        self._step += 1
+
+    def index(self, kind: str, element_id: str) -> int:
+        assert kind == "link", kind
+        return _LINK_IDS.index(element_id)
+
+    def read(self, path: str, idx):
+        if path == "link.stats.slot_share":
+            return float(self._shares[min(self._step, len(self._shares) - 1)][idx])
+        assert path == "coefficient.is_param", path
+        return _FakeReactions.PARAMS[idx]
+
+    def write(self, path: str, idx, value: float) -> None:
+        assert path == "coefficient.value", path
+        self.solver.reactions.values[idx] = float(value)
 
     def get_option(self, name: str) -> str:
         value = self._options.get(name)
@@ -221,7 +231,7 @@ class TestSurchargeSlotShare(unittest.TestCase):
         term = SurchargeSlotShare(_LINK_IDS)
         term.bind(adapter)
         term.reset()
-        adapter.links.advance()
+        adapter.advance()
         self.assertAlmostEqual(term.step(adapter, 60.0), 0.3, places=6)
 
     def test_contribution_is_the_running_max_increment(self):
@@ -231,7 +241,7 @@ class TestSurchargeSlotShare(unittest.TestCase):
         term.reset()
         contributions = []
         for _ in range(3):
-            adapter.links.advance()
+            adapter.advance()
             contributions.append(term.step(adapter, 60.0))
         # 0.2 then +0.3 to reach the 0.5 peak, then nothing as it recedes.
         self.assertAlmostEqual(contributions[0], 0.2, places=6)
@@ -245,9 +255,9 @@ class TestSurchargeSlotShare(unittest.TestCase):
         term = SurchargeSlotShare(_LINK_IDS)
         term.bind(adapter)
         term.reset()
-        adapter.links.advance()
+        adapter.advance()
         term.step(adapter, 60.0)
-        adapter.links.advance()
+        adapter.advance()
         self.assertEqual(term.step(adapter, 60.0), 0.0)
 
     def test_reset_drops_the_previous_episode_envelope(self):
@@ -255,7 +265,7 @@ class TestSurchargeSlotShare(unittest.TestCase):
         term = SurchargeSlotShare(_LINK_IDS)
         term.bind(adapter)
         term.reset()
-        adapter.links.advance()
+        adapter.advance()
         first = term.step(adapter, 60.0)
         term.reset()
         self.assertAlmostEqual(term.step(adapter, 60.0), first, places=6)
@@ -267,7 +277,7 @@ class TestSurchargeSlotShare(unittest.TestCase):
         term = SurchargeSlotShare(_LINK_IDS)
         term.bind(adapter)
         term.reset()
-        adapter.links.advance()
+        adapter.advance()
         self.assertAlmostEqual(term.step(adapter, 3600.0), 0.4, places=6)
 
 
@@ -329,16 +339,16 @@ class TestReactionCoefficientValue(unittest.TestCase):
         factory = ReactionCoefficientValue(["kd", "ks"], 0.0, 10.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([1.5, 7.25], dtype=np.float32))
-        self.assertAlmostEqual(adapter.reactions.values["kd"], 1.5, places=5)
-        self.assertAlmostEqual(adapter.reactions.values["ks"], 7.25, places=5)
+        self.assertAlmostEqual(adapter.solver.reactions.values["kd"], 1.5, places=5)
+        self.assertAlmostEqual(adapter.solver.reactions.values["ks"], 7.25, places=5)
 
     def test_apply_clips_to_the_declared_bounds(self):
         adapter = _FakeAdapter()
         factory = ReactionCoefficientValue(["kd", "ks"], [0.0, 1.0], [1.0, 2.0])
         factory.bind(adapter)
         factory.apply(adapter, np.array([-5.0, 99.0], dtype=np.float32))
-        self.assertAlmostEqual(adapter.reactions.values["kd"], 0.0, places=5)
-        self.assertAlmostEqual(adapter.reactions.values["ks"], 2.0, places=5)
+        self.assertAlmostEqual(adapter.solver.reactions.values["kd"], 0.0, places=5)
+        self.assertAlmostEqual(adapter.solver.reactions.values["ks"], 2.0, places=5)
 
 
 # =============================================================================
@@ -390,14 +400,14 @@ class TestHeatSourceTemperature(unittest.TestCase):
         factory = HeatSourceTemperature(["DWF", "EXTERNAL_INFLOW"], 0.0, 40.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([12.0, 21.0], dtype=np.float32))
-        self.assertEqual(adapter.heat.writes, [("DWF", 12.0), ("EXTERNAL_INFLOW", 21.0)])
+        self.assertEqual(adapter.solver.heat.writes, [("DWF", 12.0), ("EXTERNAL_INFLOW", 21.0)])
 
     def test_apply_clips_to_the_declared_bounds(self):
         adapter = _FakeAdapter()
         factory = HeatSourceTemperature(["DWF"], 5.0, 25.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([99.0], dtype=np.float32))
-        self.assertEqual(adapter.heat.writes, [("DWF", 25.0)])
+        self.assertEqual(adapter.solver.heat.writes, [("DWF", 25.0)])
 
 
 class TestHeatSourceTemperatureSetpoint(unittest.TestCase):
@@ -442,7 +452,7 @@ class TestHeatSourceTemperatureSetpoint(unittest.TestCase):
         factory = HeatSourceTemperatureSetpoint(["DWF"], 10.0, 20.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([-999.0], dtype=np.float32))
-        self.assertEqual(adapter.heat.writes, [("DWF", 10.0)])
+        self.assertEqual(adapter.solver.heat.writes, [("DWF", 10.0)])
 
     def test_repeated_apply_is_the_per_step_contract(self):
         adapter = _FakeAdapter()
@@ -450,7 +460,7 @@ class TestHeatSourceTemperatureSetpoint(unittest.TestCase):
         factory.bind(adapter)
         for temp in (10.0, 15.0, 20.0):
             factory.apply(adapter, np.array([temp], dtype=np.float32))
-        self.assertEqual(adapter.heat.writes, [("DWF", 10.0), ("DWF", 15.0), ("DWF", 20.0)])
+        self.assertEqual(adapter.solver.heat.writes, [("DWF", 10.0), ("DWF", 15.0), ("DWF", 20.0)])
 
 
 # =============================================================================
@@ -475,14 +485,14 @@ class TestWaterAgeSourceAge(unittest.TestCase):
         factory = WaterAgeSourceAge(["DWF"], -12.0, 24.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([-6.0], dtype=np.float32))
-        self.assertEqual(adapter.water_age.writes, [("DWF", -6.0)])
+        self.assertEqual(adapter.solver.water_age.writes, [("DWF", -6.0)])
 
     def test_apply_clips_to_the_declared_bounds(self):
         adapter = _FakeAdapter()
         factory = WaterAgeSourceAge(["DWF"], -12.0, 24.0)
         factory.bind(adapter)
         factory.apply(adapter, np.array([-99.0], dtype=np.float32))
-        self.assertEqual(adapter.water_age.writes, [("DWF", -12.0)])
+        self.assertEqual(adapter.solver.water_age.writes, [("DWF", -12.0)])
 
     def test_degenerate_bounds_rejected(self):
         with self.assertRaises(ValueError):
@@ -517,19 +527,19 @@ class TestOptionalSurfaceGuards(BaseEngineTest):
     neither C{HEAT_TRANSPORT} nor C{WATER_AGE}, which is exactly the case
     the model-tier check exists for. Writing source temperatures into such
     a model stores them and routes nothing, with no error anywhere — so
-    the accessor must refuse rather than hand back a usable object.
+    the guard must refuse rather than hand back a usable object.
     """
 
-    def test_heat_accessor_refuses_a_model_without_heat_transport(self):
+    def test_heat_guard_refuses_a_model_without_heat_transport(self):
         adapter = self.make_adapter()
         with self.assertRaises(RuntimeError) as ctx:
-            _ = adapter.heat
+            optional_module(adapter, "heat")
         self.assertIn("HEAT_TRANSPORT", str(ctx.exception))
 
-    def test_water_age_accessor_refuses_a_model_without_water_age(self):
+    def test_water_age_guard_refuses_a_model_without_water_age(self):
         adapter = self.make_adapter()
         with self.assertRaises(RuntimeError) as ctx:
-            _ = adapter.water_age
+            optional_module(adapter, "water_age")
         self.assertIn("WATER_AGE", str(ctx.exception))
 
     def test_heat_factory_bind_surfaces_the_model_tier_error(self):
@@ -542,12 +552,13 @@ class TestOptionalSurfaceGuards(BaseEngineTest):
         with self.assertRaises(RuntimeError):
             WaterAgeSourceAge(["DWF"], 0.0, 24.0).bind(adapter)
 
-    def test_reactions_accessor_has_no_model_tier_gate(self):
+    def test_reactions_guard_has_no_model_tier_gate(self):
         """Unlike heat / water age there is no [OPTIONS] flag for
         reactions, so a model with no species is a legitimate (empty)
         state rather than a misconfiguration."""
         adapter = self.make_adapter()
-        self.assertEqual(adapter.reactions.coefficient_names(), [])
+        reactions = optional_module(adapter, "reactions")
+        self.assertEqual([c.name for c in reactions.coefficients], [])
 
     def test_slot_share_term_refuses_the_dynamic_wave_fixture(self):
         """minimal.inp is FLOW_ROUTING DYNWAVE, so the guard must fire

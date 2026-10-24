@@ -52,7 +52,13 @@ from gymnasium import spaces
 from openswmm.engine import _enums as _engine_enums
 from openswmm.engine import catalog as _catalog
 
-from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry, unit_label
+from openswmm_gymnasium._engine import (
+    SolverAdapter,
+    element_kind,
+    field_entry,
+    optional_module,
+    unit_label,
+)
 
 # =============================================================================
 # Internal collector base + helpers
@@ -191,7 +197,7 @@ class _PollutantConcentrationCollector(_ScalarReadCollector):
         self._pollutant_idx: int | None = None
 
     def bind(self, adapter: SolverAdapter) -> None:
-        self._pollutant_idx = adapter.pollutants.get_index(self._pollutant)
+        self._pollutant_idx = adapter.index("pollutant", self._pollutant)
         super().bind(adapter)
 
 
@@ -203,13 +209,13 @@ class _NodeQualityCollector(_PollutantConcentrationCollector):
     requires = ("pollutants", "nodes.qualities", "node.quality")
 
     def _resolve_idxs(self, adapter):
-        return [adapter.nodes.get_index(i) for i in self._ids]
+        return [adapter.index("node", i) for i in self._ids]
 
     def _read_scalar(self, adapter, idx):
-        return adapter.nodes.get_quality(idx, self._pollutant_idx)
+        return adapter.solver.nodes[idx].quality(self._pollutant_idx)
 
     def _bulk_array(self, adapter):
-        return adapter.nodes.qualities(self._pollutant_idx)
+        return adapter.call("nodes.qualities", self._pollutant_idx)
 
 
 class _LinkQualityCollector(_PollutantConcentrationCollector):
@@ -220,13 +226,13 @@ class _LinkQualityCollector(_PollutantConcentrationCollector):
     requires = ("pollutants", "links.qualities", "link.quality")
 
     def _resolve_idxs(self, adapter):
-        return [adapter.links.get_index(i) for i in self._ids]
+        return [adapter.index("link", i) for i in self._ids]
 
     def _read_scalar(self, adapter, idx):
-        return adapter.links.get_quality(idx, self._pollutant_idx)
+        return adapter.solver.links[idx].quality(self._pollutant_idx)
 
     def _bulk_array(self, adapter):
-        return adapter.links.qualities(self._pollutant_idx)
+        return adapter.call("links.qualities", self._pollutant_idx)
 
 
 # =============================================================================
@@ -261,10 +267,10 @@ class _Surface2DVertexDepthCollector:
         return ["m"] * len(self._vertex_idxs)  # the engine's 2D state is SI
 
     def bind(self, adapter: SolverAdapter) -> None:
-        # adapter.surface2d raises with a clear message when the engine
+        # optional_module raises with a clear message when the engine
         # has no 2D module or the model's 2D surface is inactive
         # (including IGNORE_2D episodes).
-        n = adapter.surface2d.n_vertices
+        n = int(optional_module(adapter, "surface2d").n_vertices)
         bad = [i for i in self._vertex_idxs if not 0 <= i < n]
         if bad:
             raise ValueError(f"{self._kind_label}: vertex indices out of range [0, {n}): {bad}")
@@ -272,7 +278,8 @@ class _Surface2DVertexDepthCollector:
 
     def collect(self, adapter: SolverAdapter) -> np.ndarray:
         assert self._idx_arr is not None, "bind() before collect()"
-        arr = adapter.surface2d.vertex_render_depths()
+        # Bulk ndarray of shape (n_vertices,); GIL released engine-side.
+        arr = adapter.solver.surface2d.get_vertex_render_depths()
         return np.asarray(arr, dtype=np.float32)[self._idx_arr]
 
 
@@ -333,9 +340,9 @@ class _CellFieldCollector:
         return [label or ""] * len(self._cells)
 
     def bind(self, adapter: SolverAdapter) -> None:
-        # adapter.surface2d raises with the remedy named when the engine has no
+        # optional_module raises with the remedy named when the engine has no
         # 2D module or the model's 2D surface is inactive.
-        n = adapter.surface2d.n_cells
+        n = int(optional_module(adapter, "surface2d").n_cells)
         bad = [c for c in self._cells if not 0 <= c < n]
         if bad:
             raise ValueError(f"add_cell_field({self._path!r}): cells out of range [0, {n}): {bad}")

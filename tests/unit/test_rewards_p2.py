@@ -27,6 +27,7 @@ we focus on the four new terms.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -108,36 +109,31 @@ class TestProtocolConformance(unittest.TestCase):
 
 
 class _StubLinks:
+    """Scripted per-step C{link.flow} / C{link.control_setting} readings."""
+
     def __init__(self, flow_series=None, setting_series=None):
-        self._flow_series = flow_series or []
-        self._setting_series = setting_series or []
-        self._flow_step = 0
-        self._setting_step = 0
+        self._series = {
+            "link.flow": list(flow_series or []),
+            "link.control_setting": list(setting_series or []),
+        }
+        self._step = {path: 0 for path in self._series}
 
-    def get_index(self, lid):
-        return 0  # only one link in stubs
-
-    def get_flow(self, idx):
-        v = self._flow_series[self._flow_step]
+    def read(self, path):
+        v = self._series[path][self._step[path]]
         # advance only when all reads for this step are done; tests
         # call with one idx per step, so always advance.
-        self._flow_step += 1
-        return v
-
-    def get_control_setting(self, idx):
-        v = self._setting_series[self._setting_step]
-        self._setting_step += 1
+        self._step[path] += 1
         return v
 
 
 class _StubStatistics:
-    """Scripted cumulative C{link_max_flow} readings, one per step."""
+    """Scripted cumulative C{link_max_flow_at} readings, one per step."""
 
     def __init__(self, max_flow_series=None):
         self._series = max_flow_series or []
         self._step = 0
 
-    def link_max_flow(self, idx):
+    def link_max_flow_at(self, idx):
         v = self._series[self._step]
         self._step += 1
         return v
@@ -145,9 +141,14 @@ class _StubStatistics:
 
 class _StubAdapter:
     def __init__(self, links, statistics=None):
-        self.links = links
-        self.nodes = None
-        self.statistics = statistics
+        self._links = links
+        self.solver = SimpleNamespace(statistics=statistics)
+
+    def index(self, kind, element_id):
+        return 0  # only one link in stubs
+
+    def read(self, path, idx):
+        return self._links.read(path)
 
 
 class TestPeakOutflowLogic(unittest.TestCase):
@@ -210,7 +211,7 @@ class TestIntegration(BaseEngineTest):
         term.bind(adapter)
         term.reset()
         # Read max depth from the fixture; freeboard must be in [0, max_depth].
-        max_d = float(adapter.nodes.get_max_depth(adapter.nodes.get_index("J1")))
+        max_d = float(adapter.read("node.max_depth", adapter.index("node", "J1")))
         observed = []
         while adapter.is_running:
             adapter.step()

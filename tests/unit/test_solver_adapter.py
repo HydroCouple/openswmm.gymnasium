@@ -179,16 +179,16 @@ class TestLifecycle(BaseEngineTest):
         adapter.report()
         adapter.close()
 
-    def test_nodes_links_controls_accessors(self):
-        """Lazy accessors return the engine collection classes."""
+    def test_element_collections_and_index(self):
+        """Element collections come from the engine; ids resolve by catalog kind."""
         adapter = self.make_adapter(open=True)
-        # First access constructs; second returns cached instance.
-        n1 = adapter.nodes
-        n2 = adapter.nodes
-        self.assertIs(n1, n2)
-        self.assertEqual(adapter.nodes.count(), 2)  # J1, O1
-        self.assertEqual(adapter.links.count(), 1)  # C1
-        self.assertEqual(adapter.controls.count(), 0)  # no [CONTROLS] in fixture
+        # The engine caches its collections; no per-access wrapper is built.
+        self.assertIs(adapter.solver.nodes, adapter.solver.nodes)
+        self.assertEqual(len(adapter.solver.nodes), 2)  # J1, O1
+        self.assertEqual(len(adapter.solver.links), 1)  # C1
+        self.assertEqual(len(adapter.solver.controls), 0)  # no [CONTROLS] in fixture
+        self.assertEqual(sorted(adapter.index("node", nid) for nid in ("J1", "O1")), [0, 1])
+        self.assertEqual(adapter.index("link", "C1"), 0)
 
     def test_context_manager(self):
         """``with SolverAdapter(...): ...`` opens, initializes, and closes."""

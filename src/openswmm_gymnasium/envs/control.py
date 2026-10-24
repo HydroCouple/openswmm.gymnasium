@@ -208,7 +208,7 @@ class SwmmControlEnv(gym.Env):
         if metric_reader is not None:
             metric_reader.bind(adapter)
         controller.reset()
-        structure_idxs = {sid: adapter.links.get_index(sid) for sid in controller.structure_ids}
+        structure_idxs = {sid: adapter.index("link", sid) for sid in controller.structure_ids}
         for term in self._reward_terms:
             term.bind(adapter)
             term.reset()
@@ -306,4 +306,4 @@ class SwmmControlEnv(gym.Env):
         metrics = metric_reader.read(adapter) if metric_reader is not None else {}
         settings = controller.compute_settings(metrics, dt_seconds)
         for sid, value in settings.items():
-            adapter.links.set_target_setting(structure_idxs[sid], float(value))
+            adapter.write("link.target_setting", structure_idxs[sid], float(value))
