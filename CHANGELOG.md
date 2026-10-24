@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`pip install openswmm.gymnasium[spec]`, adds pydantic). Errors are
   `SpecError` with an `ErrorCode`. `ObservationSpec` gains `fields` and
   `cell_fields`.
+- **`openswmm_gymnasium.optimize`** (moved from openswmm.mcp): design and
+  policy optimisation over an `EnvConfig`. Ask/tell optimisers (random, grid
+  and the Platypus MOEAs) evaluate each batch in process or on parallel
+  worker processes (`OptimizationConfig.workers`; default all but one CPU, at
+  most 8). An engine crash fails only its candidate and the worker is
+  replaced; the study then stops (`on_failure="fail"`, the default) or scores
+  the candidate with a penalty and continues (`"penalty"`). `run_study(...)`
+  logs every evaluation to `evaluations.jsonl` and the Pareto front to
+  `result.json`, reports progress and honours cancellation. Serial and
+  parallel runs log identical evaluations.
 
 ### Changed
 
