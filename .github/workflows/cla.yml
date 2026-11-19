@@ -27,8 +27,6 @@ jobs:
           path-to-document: "https://github.com/HydroCouple/openswmm.gymnasium/blob/main/CLA.md"
           branch: "main"
           allowlist: "dependabot[bot],github-actions[bot]"
-          remote-organization-name: "HydroCouple"
-          remote-repository-name: "openswmm.gymnasium"
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
           custom-allsigned-prcomment: "Thanks — all contributors have signed the CLA."
           create-file-commit-message: "chore: add CLA signature record"
