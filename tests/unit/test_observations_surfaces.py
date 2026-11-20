@@ -272,9 +272,11 @@ class _TraceFractions:
         try:
             self.tracer.prepare_live(self._out)
         except _engine.TraceError as exc:
-            if exc.code != _engine.TraceStatus.IO:
+            # No complete reporting period yet: the output cannot be read (IO), or it has no
+            # period to average over (INVALID, "No valid reporting periods").
+            if exc.code not in (_engine.TraceStatus.IO, _engine.TraceStatus.INVALID):
                 raise
-            return np.zeros(self.size, dtype=np.float32)  # no complete period yet
+            return np.zeros(self.size, dtype=np.float32)
         result = self.tracer.estimate(self._seed, self._direction)
         return np.asarray([result.nodes[i].ratio for i in self._idx], dtype=np.float32)
 

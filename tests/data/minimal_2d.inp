@@ -35,6 +35,9 @@ IN_TS   0:08   0.10
 IN_TS   0:09   0.0
 
 [2D_OPTIONS]
+;; Local inertial, as these tests were written for: FULL_SWE became the engine default on
+;; 2026-11-13, and runtime coupling sources need the local-inertial CPU solver.
+MOMENTUM_EQUATION LOCAL_INERTIAL
 MAX_TIMESTEP     1
 DRY_DEPTH        0.002
 COUPLING_CD      0.7
