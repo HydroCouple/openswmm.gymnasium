@@ -156,6 +156,42 @@ def sidecar_files(env_config: EnvConfig) -> dict[str, Path]:
     return {n: folder / n for n in dict.fromkeys(names) if not Path(n).is_absolute()}
 
 
+def rerun(
+    manifest: dict[str, Any] | str | Path,
+    model: str | Path,
+    output_dir: str | Path,
+    *,
+    workers: int = 0,
+) -> dict[str, Any]:
+    """Run a study again from its manifest: its env config, search and seed, on a local
+    copy of its model.
+
+    @param manifest: A study manifest, or the path of its C{study-manifest.json}.
+    @param model: The local C{.inp}; its folder holds the sidecars the study names.
+    @param output_dir: Folder for the run's C{evaluations.jsonl}, C{result.json} and
+        manifest; the model is first packaged under C{output_dir/model-check} to check it.
+    @param workers: Evaluator processes; the evaluations do not depend on it.
+    @return: The study's result, as L{run_study<openswmm_gymnasium.optimize.run_study>}.
+    @raise SpecError: C{VALIDATION_ERROR} when the model's files are not the study's.
+    @rtype: dict
+    """
+    from openswmm_gymnasium.optimize.study import OptimizationConfig, run_study
+    from openswmm_gymnasium.spec.errors import ErrorCode, SpecError
+
+    doc = manifest if isinstance(manifest, dict) else json.loads(Path(manifest).read_text())
+    definition = doc["definition"]
+    config = EnvConfig.model_validate(dict(definition["env_config"]) | {"inp_path": str(model)})
+    inputs, _, _ = package_locally(config, Path(output_dir) / "model-check")
+    if inputs != definition["model_inputs"]:
+        changed = sorted(set(inputs.items()) ^ set(definition["model_inputs"].items()))
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] {model} and its sidecars are not the model the "
+            f"study evaluated; these files differ: {sorted({path for path, _ in changed})}."
+        )
+    opt = OptimizationConfig.model_validate(definition["optimization"] | {"workers": workers})
+    return run_study(config, opt, output_dir)
+
+
 def package_locally(env_config: EnvConfig, output_dir: Path) -> tuple[dict[str, str], str, Any]:
     """Package the study's model and its L{sidecar_files} under C{output_dir/package} as
     the platform would.

@@ -56,6 +56,7 @@ from openswmm_gymnasium.optimize.space import (
     join_decisions,
     objective_directions,
 )
+from openswmm_gymnasium.optimize.uncertainty import AcceptanceRule
 from openswmm_gymnasium.spec.config import EnvConfig
 from openswmm_gymnasium.spec.envs import json_safe
 
@@ -79,6 +80,10 @@ class OptimizationConfig(BaseModel):
         does: C{"fail"} stops the study; C{"penalty"} records it with every
         objective set to C{failure_penalty} and continues.
     @ivar failure_penalty: Cost given to each objective of a failed candidate.
+    @ivar acceptance: Which evaluations are behavioural (a calibration's acceptance rule,
+        L{AcceptanceRule<openswmm_gymnasium.optimize.uncertainty.AcceptanceRule>}). It does
+        not change the search; it travels in the study manifest for
+        L{behavioural_set<openswmm_gymnasium.optimize.uncertainty.behavioural_set>}.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -93,6 +98,7 @@ class OptimizationConfig(BaseModel):
     on_failure: Literal["fail", "penalty"] = "fail"
     failure_penalty: float = 1e12
     candidates: list[dict[str, list[float]]] | None = None
+    acceptance: AcceptanceRule | None = None
 
     @model_validator(mode="after")
     def _alternatives_have_candidates(self) -> OptimizationConfig:

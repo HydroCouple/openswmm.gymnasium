@@ -74,9 +74,15 @@ from openswmm_gymnasium.optimize.space import (
     split_vector,
 )
 from openswmm_gymnasium.optimize.study import OptimizationConfig, assemble_result, run_study
+from openswmm_gymnasium.optimize.uncertainty import (
+    AcceptanceRule,
+    behavioural_set,
+    prediction_bands,
+)
 
 __all__ = [
     "ALGORITHMS",
+    "AcceptanceRule",
     "Alternatives",
     "apply_decisions",
     "PLATYPUS_ALGORITHMS",
@@ -94,6 +100,7 @@ __all__ = [
     "StudyCancelled",
     "WorkerPool",
     "assemble_result",
+    "behavioural_set",
     "baseline_decisions",
     "decision_values",
     "default_workers",
@@ -103,6 +110,7 @@ __all__ = [
     "join_decisions",
     "make_optimizer",
     "objective_directions",
+    "prediction_bands",
     "run_study",
     "split_vector",
 ]
