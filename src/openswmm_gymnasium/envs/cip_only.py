@@ -83,6 +83,7 @@ class SwmmCIPEnv(gym.Env):
         reward_terms: Sequence[RewardTerm] | None = None,
         rpt_path: PathLike | None = None,
         out_path: PathLike | None = None,
+        event: Any | None = None,
     ) -> None:
         """
         @param inp_path: Path to the SWMM input file driving the
@@ -101,6 +102,9 @@ class SwmmCIPEnv(gym.Env):
         @type rpt_path: str, os.PathLike, or C{None}
         @param out_path: Optional binary output file path.
         @type out_path: str, os.PathLike, or C{None}
+        @param event: Optional storm applied to every episode before C{initialize}
+            (its window and rain; L{RainEvent<openswmm_gymnasium.events.RainEvent>}).
+        @type event: L{RainEvent<openswmm_gymnasium.events.RainEvent>} or C{None}
         @raise ValueError: If C{design_factories} is empty or
             C{observation_builder} is C{None}.
         """
@@ -114,6 +118,7 @@ class SwmmCIPEnv(gym.Env):
         self._inp_path = str(inp_path)
         self._rpt_path = None if rpt_path is None else str(rpt_path)
         self._out_path = None if out_path is None else str(out_path)
+        self._event = event
         self._design_factories: list[DesignActionFactory] = list(design_factories)
         self._observation_builder = observation_builder
         self._reward_terms: list[RewardTerm] = list(
@@ -181,6 +186,8 @@ class SwmmCIPEnv(gym.Env):
         for f in self._design_factories:
             f.bind(adapter)
             f.apply(adapter, design[f.name])
+        if self._event is not None:
+            self._event.apply(adapter)
         adapter.initialize()
         adapter.start()
 

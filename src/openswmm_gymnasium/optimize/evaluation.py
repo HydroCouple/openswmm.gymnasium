@@ -46,6 +46,7 @@ from typing import Any
 
 import numpy as np
 
+from openswmm_gymnasium.events import aggregate
 from openswmm_gymnasium.optimize.space import (
     POLICY_ENV_TYPES,
     DesignDimension,
@@ -68,7 +69,7 @@ class Evaluation:
 
     @ivar costs: Direction-adjusted cost per objective (every objective is
         minimised: a C{maximize} term is negated); C{None} when it failed.
-    @ivar steps: Env steps the episode took.
+    @ivar steps: Env steps the episode took (summed over events).
     @ivar error: Failure description, or C{None}.
     @ivar metrics: Every reward term's value as the term reports it (not direction
         adjusted), objective or not, by name in sorted order (so records read the same
@@ -85,6 +86,10 @@ class Evaluation:
 class Evaluator:
     """Runs one episode per candidate on a single env (one engine handle).
 
+    With C{env_config.events}, a candidate runs once per event, each on its own env; a
+    term's value is its per-event values combined by C{env_config.event_aggregation}, and
+    each per-event value is also a metric, C{<term>@<event>}.
+
     @ivar env_config: The env config being searched.
     @ivar dims: Its search dimensions.
     @ivar seed: Seed passed to every C{reset}.
@@ -95,54 +100,80 @@ class Evaluator:
     dims: list[DesignDimension]
     seed: int | None = None
     max_steps: int = 10_000
-    _env: Any = field(init=False, repr=False)
+    _envs: list[Any] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.directions = objective_directions(self.env_config)
         self.objective_names = list(self.directions)
-        self._env = build_env(self.env_config)
+        self._envs = []
+        try:
+            for event in self.env_config.events or [None]:
+                name = None if event is None else event.name
+                self._envs.append(build_env(self.env_config, event=name))
+        except BaseException:
+            self.close()
+            raise
 
     def close(self) -> None:
-        """Close the env and release its engine handle."""
-        self._env.close()
+        """Close the envs and release their engine handles."""
+        for env in self._envs:
+            env.close()
 
-    def evaluate(self, vector: np.ndarray) -> Evaluation:
-        """Run one episode for a flat decision vector.
-
-        @raise Exception: Whatever the env raises; L{WorkerPool} records it.
-        @rtype: L{Evaluation}
-        """
-        env, kind = self._env, self.env_config.env_type
+    def _episode(self, env: Any, vector: np.ndarray) -> tuple[dict[str, float], int]:
+        """One episode's reward components and steps."""
+        kind = self.env_config.env_type
         if kind in POLICY_ENV_TYPES:
             env.reset(seed=self.seed)
             _obs, _r, _term, _trunc, info = env.step(np.asarray(vector, dtype=np.float32))
-            components, steps = dict(info.get("reward_components", {})), 1
-        elif kind == "cip":
+            return dict(info.get("reward_components", {})), 1
+        if kind == "cip":
             env.reset(seed=self.seed)
             design = json_safe(split_vector(self.dims, vector))
             action = build_action(env.action_space, {"design": design})
             _obs, _r, _term, _trunc, info = env.step(action)
-            components, steps = dict(info.get("reward_components", {})), 1
-        else:  # joint: design fixed at reset, neutral runtime action each step
-            env.reset(seed=self.seed, options={"design_action": split_vector(self.dims, vector)})
-            neutral = build_action(env.action_space, None)
-            components, steps = {}, 0
-            terminated = truncated = False
-            while steps < self.max_steps and not (terminated or truncated):
-                _obs, _r, terminated, truncated, info = env.step(neutral)
-                steps += 1
-                for term, value in info.get("reward_components", {}).items():
-                    components[term] = components.get(term, 0.0) + float(value)
+            return dict(info.get("reward_components", {})), 1
+        # joint: design fixed at reset, neutral runtime action each step
+        env.reset(seed=self.seed, options={"design_action": split_vector(self.dims, vector)})
+        neutral = build_action(env.action_space, None)
+        components: dict[str, float] = {}
+        steps = 0
+        terminated = truncated = False
+        while steps < self.max_steps and not (terminated or truncated):
+            _obs, _r, terminated, truncated, info = env.step(neutral)
+            steps += 1
+            for term, value in info.get("reward_components", {}).items():
+                components[term] = components.get(term, 0.0) + float(value)
+        return components, steps
+
+    def evaluate(self, vector: np.ndarray) -> Evaluation:
+        """Run one episode (one per event) for a flat decision vector.
+
+        @raise Exception: Whatever the env raises; L{WorkerPool} records it.
+        @rtype: L{Evaluation}
+        """
+        runs = [self._episode(env, vector) for env in self._envs]
+        values: dict[str, float] = {}
+        if self.env_config.events:
+            weights = [e.weight for e in self.env_config.events]
+            rule = self.env_config.event_aggregation
+            components = {
+                name: aggregate([float(c.get(name, 0.0)) for c, _ in runs], weights, rule)
+                for name in runs[0][0]
+            }
+            for event, (per_event, _) in zip(self.env_config.events, runs, strict=True):
+                values.update({f"{n}@{event.name}": float(v) for n, v in per_event.items()})
+        else:
+            components = runs[0][0]
+        values.update({n: float(v) for n, v in components.items()})
         costs = [
             float(components.get(name, 0.0))
             * (1.0 if self.directions[name] == "minimize" else -1.0)
             for name in self.objective_names
         ]
         metrics = {
-            name: float(value) if math.isfinite(float(value)) else None
-            for name, value in sorted(components.items())
+            name: value if math.isfinite(value) else None for name, value in sorted(values.items())
         }
-        return Evaluation(costs=costs, steps=steps, metrics=metrics)
+        return Evaluation(costs=costs, steps=sum(steps for _, steps in runs), metrics=metrics)
 
 
 #: Design kinds whose action is the value of one element field, so the model's own value

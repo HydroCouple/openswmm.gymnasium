@@ -141,8 +141,23 @@ def write_study_manifest(
     return path
 
 
+def sidecar_files(env_config: EnvConfig) -> dict[str, Path]:
+    """Files the env config names that the model does not: event rain and observations.
+
+    Package path (relative to the model's folder, as the config names it) to the local
+    file. A revision of the model needs them as sidecars; an absolute path is left out.
+
+    @rtype: dict
+    """
+    folder = Path(env_config.inp_path).parent
+    names = [e.series for e in env_config.events]
+    names += [t.params["observed"] for t in env_config.reward_terms if t.kind == "fit_to_observed"]
+    return {n: folder / n for n in dict.fromkeys(names) if not Path(n).is_absolute()}
+
+
 def package_locally(env_config: EnvConfig, output_dir: Path) -> tuple[dict[str, str], str, Any]:
-    """Package the study's model under C{output_dir/package} as the platform would.
+    """Package the study's model and its L{sidecar_files} under C{output_dir/package} as
+    the platform would.
 
     @return: The L{model_inputs}, the model's path in the package, and the package's
         revision manifest.
@@ -151,7 +166,9 @@ def package_locally(env_config: EnvConfig, output_dir: Path) -> tuple[dict[str, 
     """
     from hydrocouple_platform.packaging import package_swmm_model
 
-    package = package_swmm_model(env_config.inp_path, output_dir / "package")
+    package = package_swmm_model(
+        env_config.inp_path, output_dir / "package", extra_files=sidecar_files(env_config) or None
+    )
     files = package.manifest.model_dump(mode="json", by_alias=True)["files"]
     model = next(f["path"] for f in files if f["role"] == "model")
     return model_inputs(files), model, package.manifest

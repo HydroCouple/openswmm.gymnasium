@@ -88,6 +88,7 @@ class SwmmControlEnv(gym.Env):
         control_interval_seconds: float | None = None,
         rpt_path: PathLike | None = None,
         out_path: PathLike | None = None,
+        event: Any | None = None,
     ) -> None:
         """
         Two construction modes:
@@ -114,11 +115,14 @@ class SwmmControlEnv(gym.Env):
             mode, else defaults to the market config's interval.
         @param rpt_path: Optional report file path.
         @param out_path: Optional binary output file path.
+        @param event: Optional storm applied to every evaluation before C{initialize}
+            (its window and rain; L{RainEvent<openswmm_gymnasium.events.RainEvent>}).
         @raise ValueError: On missing observation builder or an incomplete mode.
         """
         super().__init__()
         if observation_builder is None:
             raise ValueError("observation_builder is required")
+        self._event = event
 
         if market_config is not None:
             market_config.validate()
@@ -201,6 +205,8 @@ class SwmmControlEnv(gym.Env):
 
         adapter = SolverAdapter(self._inp_path, self._rpt_path, self._out_path)
         adapter.open()
+        if self._event is not None:
+            self._event.apply(adapter)
         adapter.initialize()
         adapter.start()
 

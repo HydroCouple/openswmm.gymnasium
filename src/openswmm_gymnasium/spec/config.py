@@ -30,9 +30,10 @@ OpenSWMM MCP server's C{gym_*} tools compose and store these configs.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from openswmm_gymnasium.spec import registry
 from openswmm_gymnasium.spec.errors import ErrorCode, SpecError
@@ -393,6 +394,57 @@ class WrapperSpec(_KindSpecModel):
     _category: ClassVar[str] = "wrapper"
 
 
+#: Env types a study evaluates, and so the ones that take events.
+EVENT_ENV_TYPES = ("cip", "joint", "market", "schedule", "control_curve")
+
+
+class EventSpec(BaseModel):
+    """One storm a study scores each candidate on (L{RainEvent<openswmm_gymnasium.events.RainEvent>}).
+
+    @ivar name: Event name, unique in the config; per-event metrics are C{<term>@<name>}.
+    @ivar series: Rain CSV relative to the model's folder (a revision sidecar).
+    @ivar gage: Rain gage that reads the series.
+    @ivar start: Simulation and report start (UTC wall clock, as the model's dates).
+    @ivar end: Simulation end.
+    @ivar weight: Weight under the C{weighted_mean} aggregation.
+    @ivar return_period: Return period in years, recorded with the event.
+    @ivar rain_format: C{INTENSITY}, C{VOLUME} or C{CUMULATIVE}, as for a SWMM gage.
+    @ivar column: CSV column holding the rain; C{None} for the file's only column.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    series: str = Field(min_length=1)
+    gage: str = Field(min_length=1)
+    start: datetime
+    end: datetime
+    weight: float = Field(default=1.0, gt=0)
+    return_period: float | None = Field(default=None, gt=0)
+    rain_format: Literal["INTENSITY", "VOLUME", "CUMULATIVE"] = "INTENSITY"
+    column: str | None = None
+
+    @model_validator(mode="after")
+    def _window(self) -> EventSpec:
+        if self.end <= self.start:
+            raise ValueError(f"event {self.name!r} ends before it starts")
+        return self
+
+    def build(self) -> Any:
+        """The L{RainEvent<openswmm_gymnasium.events.RainEvent>} an env applies."""
+        from openswmm_gymnasium.events import RainEvent
+
+        return RainEvent(
+            name=self.name,
+            series=self.series,
+            gage=self.gage,
+            start=self.start,
+            end=self.end,
+            rain_format=self.rain_format,
+            column=self.column,
+        )
+
+
 class EnvConfig(BaseModel):
     """Declarative, JSON-serializable environment configuration.
 
@@ -433,6 +485,10 @@ class EnvConfig(BaseModel):
         (a single all-nodes C{FloodingVolume}).
     @ivar objectives: Names of the reward terms a study optimizes, in order; C{None}
         means every term. The other terms are recorded as metrics of each evaluation.
+    @ivar events: Storms a study scores each candidate on, one run each (study env types
+        only); empty means the model's own rain and window. See L{build_env}.
+    @ivar event_aggregation: How a term's per-event values become its value: C{sum},
+        C{mean}, C{max} (of the term's own values) or C{weighted_mean} (by event weight).
     @ivar control_interval_steps: Routing steps per env step (rtc/joint/mo_rtc).
     @ivar max_episode_steps: Optional truncation horizon (rtc/joint/mo_rtc).
     @ivar ideal_point: Per-objective best-case values (mo_rtc only, required).
@@ -452,6 +508,8 @@ class EnvConfig(BaseModel):
     observations: ObservationSpec
     reward_terms: list[RewardTermSpec] = []
     objectives: list[str] | None = None
+    events: list[EventSpec] = []
+    event_aggregation: Literal["sum", "mean", "max", "weighted_mean"] = "mean"
     control_interval_steps: int = 1
     max_episode_steps: int | None = None
     ideal_point: list[float] | None = None
@@ -487,6 +545,14 @@ class EnvConfig(BaseModel):
             not self.objectives or len(set(self.objectives)) != len(self.objectives)
         ):
             raise ValueError("objectives must name at least one reward term, each once")
+        if self.events:
+            if self.env_type not in EVENT_ENV_TYPES:
+                raise ValueError(
+                    f"events are scored by studies; env_type '{self.env_type}' takes none"
+                )
+            names = [e.name for e in self.events]
+            if len(set(names)) != len(names):
+                raise ValueError("event names must be unique")
 
         if self.env_type == "market":
             if self.market_config is None:
@@ -555,7 +621,7 @@ class EnvConfig(BaseModel):
         return self
 
 
-def build_env(config: EnvConfig) -> Any:
+def build_env(config: EnvConfig, event: str | None = None) -> Any:
     """Construct a live, wrapped C{gymnasium.Env} from *config*.
 
     The only function in this module that imports C{openswmm_gymnasium}.
@@ -564,6 +630,9 @@ def build_env(config: EnvConfig) -> Any:
 
     @param config: A validated environment config.
     @type config: L{EnvConfig}
+    @param event: Name of one of C{config.events}: every episode runs that storm in its
+        window. C{None} runs the model's own rain, whatever C{config.events} lists.
+    @type event: str or C{None}
     @return: The constructed env, with C{config.wrappers} applied in
         list order.
     @rtype: C{gymnasium.Env}
@@ -578,6 +647,15 @@ def build_env(config: EnvConfig) -> Any:
         SwmmRTCEnv,
     )
 
+    rain_event = None
+    if event is not None:
+        by_name = {e.name: e for e in config.events}
+        if event not in by_name:
+            raise SpecError(
+                f"[{ErrorCode.VALIDATION_ERROR}] No event {event!r}; the config's events "
+                f"are {list(by_name)}."
+            )
+        rain_event = by_name[event].build()
     observation_builder = config.observations.build()
     reward_terms = [spec.construct() for spec in config.reward_terms] or None
     runtime_factories = [spec.construct() for spec in config.runtime_factories] or None
@@ -606,6 +684,7 @@ def build_env(config: EnvConfig) -> Any:
             env = SwmmCIPEnv(
                 config.inp_path,
                 design_factories=design_factories,
+                event=rain_event,
                 **common,
             )
         elif config.env_type == "joint":
@@ -613,6 +692,7 @@ def build_env(config: EnvConfig) -> Any:
                 config.inp_path,
                 design_factories=design_factories,
                 runtime_factories=runtime_factories,
+                event=rain_event,
                 **common,
                 **stepped,
             )
@@ -632,6 +712,7 @@ def build_env(config: EnvConfig) -> Any:
             )
             env = SwmmControlEnv(
                 config.inp_path,
+                event=rain_event,
                 market_config=market,
                 policy_space=policy_space,
                 control_interval_seconds=config.control_interval_seconds,
@@ -648,6 +729,7 @@ def build_env(config: EnvConfig) -> Any:
             )
             env = SwmmControlEnv(
                 config.inp_path,
+                event=rain_event,
                 policy_space=policy_space,
                 controller_factory=lambda sched: ScheduleController(structures, sched),
                 metric_reader_factory=None,
@@ -664,6 +746,7 @@ def build_env(config: EnvConfig) -> Any:
             policy_space = ControlCurvePolicySpace.from_params(config.policy_factory.params)
             env = SwmmControlEnv(
                 config.inp_path,
+                event=rain_event,
                 policy_space=policy_space,
                 controller_factory=lambda policy: ControlCurveController(policy),
                 metric_reader_factory=lambda policy: ControlCurveMetricReader(policy),
