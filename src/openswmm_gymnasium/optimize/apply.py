@@ -18,7 +18,7 @@
 Write a chosen design onto a model.
 
 L{apply_decisions} writes an evaluated design onto an opened model through the env
-config's own design factories, with the values an evaluation of it used (C{float32},
+config's own design factories, with the values an evaluation of it used (C{float64},
 clipped to each factory's range), so a model written afterwards is the design that was
 scored, for every design kind.
 
@@ -56,7 +56,7 @@ def apply_decisions(
             "policy, not the model; there is no design to write onto it."
         )
     dims = design_dimensions(env_config)
-    values = split_vector(dims, join_decisions(dims, decisions))  # float32, as evaluated
+    values = split_vector(dims, join_decisions(dims, decisions))  # as evaluated
     applied: list[dict[str, Any]] = []
     for spec, dim in zip(env_config.design_factories, dims, strict=True):
         factory = spec.construct()

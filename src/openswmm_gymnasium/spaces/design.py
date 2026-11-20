@@ -23,6 +23,8 @@ later phases) over a static-attribute action vector and writes the
 sampled value into the engine through the appropriate
 L{openswmm.engine} setter. Design factories are applied **once per
 episode**, between L{SolverAdapter.open} and L{SolverAdapter.initialize}.
+Their spaces are C{float64}, so a design is evaluated, and written into a
+model, at the value it was given.
 
 P3 ships four representative continuous factories that exercise the
 pre-initialize edit path:
@@ -130,10 +132,10 @@ def _make_box(low: float, high: float, n: int) -> spaces.Box:
     if not (high > low):
         raise ValueError(f"high ({high}) must be strictly greater than low ({low})")
     return spaces.Box(
-        low=np.full((n,), low, dtype=np.float32),
-        high=np.full((n,), high, dtype=np.float32),
+        low=np.full((n,), low, dtype=np.float64),
+        high=np.full((n,), high, dtype=np.float64),
         shape=(n,),
-        dtype=np.float32,
+        dtype=np.float64,
     )
 
 
@@ -152,8 +154,8 @@ def _make_box_bounds(low: Sequence[float], high: Sequence[float]) -> spaces.Box:
     @raise ValueError: If lengths differ, any C{high < low}, or every
         component is degenerate.
     """
-    lo = np.asarray(low, dtype=np.float32)
-    hi = np.asarray(high, dtype=np.float32)
+    lo = np.asarray(low, dtype=np.float64)
+    hi = np.asarray(high, dtype=np.float64)
     if lo.shape != hi.shape or lo.ndim != 1:
         raise ValueError("low and high must be 1-D sequences of equal length")
     if lo.size == 0:
@@ -163,7 +165,7 @@ def _make_box_bounds(low: Sequence[float], high: Sequence[float]) -> spaces.Box:
         raise ValueError(f"high[{bad}] ({hi[bad]}) must be >= low[{bad}] ({lo[bad]})")
     if not np.any(hi > lo):
         raise ValueError("at least one component must have high > low (searchable)")
-    return spaces.Box(low=lo, high=hi, shape=lo.shape, dtype=np.float32)
+    return spaces.Box(low=lo, high=hi, shape=lo.shape, dtype=np.float64)
 
 
 def _validate_link_ids(name: str, link_ids: Sequence[str]) -> list[str]:
@@ -233,7 +235,7 @@ class LinkRoughness:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("LinkRoughness.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
             adapter.write("link.roughness", idx, float(v))
 
@@ -282,7 +284,7 @@ class LinkLength:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("LinkLength.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
             adapter.write("link.length", idx, float(v))
 
@@ -437,7 +439,7 @@ class LinkDiameter:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._baseline is None:
             raise RuntimeError("LinkDiameter.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         links = adapter.solver.links
         for idx, (shape_code, geoms, slots, rise), v in zip(
             self._idxs, self._baseline, clipped, strict=True
@@ -498,7 +500,7 @@ class NodeMaxDepth:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None:
             raise RuntimeError("NodeMaxDepth.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         for idx, v in zip(self._idxs, clipped, strict=True):
             adapter.write("node.max_depth", idx, float(v))
 
@@ -564,7 +566,7 @@ class SubcatchGWOutflowCoeff:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._cached_params is None:
             raise RuntimeError("SubcatchGWOutflowCoeff.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         subcatchments = adapter.solver.subcatchments
         for idx, params, v in zip(self._idxs, self._cached_params, clipped, strict=True):
             surf_elev, _a1, b1, a2, b2, a3, tw, hstar = params
@@ -669,8 +671,8 @@ class StorageVolume:
             self._high = float(high)  # type: ignore[arg-type]
             self._box = _make_box(self._low, self._high, n)
         else:  # coeffs
-            lo = np.asarray(low, dtype=np.float32)
-            hi = np.asarray(high, dtype=np.float32)
+            lo = np.asarray(low, dtype=np.float64)
+            hi = np.asarray(high, dtype=np.float64)
             if lo.shape != (3,) or hi.shape != (3,):
                 raise ValueError("coeffs mode requires length-3 (a, b, c) low/high sequences")
             # Node-major tiling: [a0,b0,c0, a1,b1,c1, ...].
@@ -729,7 +731,7 @@ class StorageVolume:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._idxs is None or self._baseline is None:
             raise RuntimeError("StorageVolume.bind() must be called before apply()")
-        arr = np.asarray(value, dtype=np.float32)
+        arr = np.asarray(value, dtype=np.float64)
         if self._mode == "scalar":
             factors = np.clip(arr, self._low, self._high)
             for idx, (shape, base), f in zip(self._idxs, self._baseline, factors, strict=True):
@@ -831,8 +833,8 @@ class LIDPlacement:
         m = len(self._lid_controls)
         # Subcatchment-major [type, area] bounds. type in [0, m] (floor+clamp
         # -> 0..m-1); area in [area_low, area_high].
-        low = np.empty(2 * n, dtype=np.float32)
-        high = np.empty(2 * n, dtype=np.float32)
+        low = np.empty(2 * n, dtype=np.float64)
+        high = np.empty(2 * n, dtype=np.float64)
         low[0::2] = 0.0
         high[0::2] = float(m)
         low[1::2] = self._area_low
@@ -856,7 +858,7 @@ class LIDPlacement:
         if self._control_idxs is None:
             raise RuntimeError("LIDPlacement.bind() must be called before apply()")
         m = len(self._lid_controls)
-        pairs = np.asarray(value, dtype=np.float32).reshape(len(self._subcatch_ids), 2)
+        pairs = np.asarray(value, dtype=np.float64).reshape(len(self._subcatch_ids), 2)
         lids = adapter.solver.infrastructure.lids
         for sid, (type_raw, area_raw) in zip(self._subcatch_ids, pairs, strict=True):
             t = int(np.clip(np.floor(type_raw), 0, m - 1))
@@ -929,8 +931,8 @@ class RDIIUnitHydrograph:
         per_low = [self._r_low]
         per_high = [self._r_high]
         if include_ia:
-            ia_lo = np.asarray(ia_low, dtype=np.float32)
-            ia_hi = np.asarray(ia_high, dtype=np.float32)
+            ia_lo = np.asarray(ia_low, dtype=np.float64)
+            ia_hi = np.asarray(ia_high, dtype=np.float64)
             if ia_lo.shape != (3,) or ia_hi.shape != (3,):
                 raise ValueError("ia_low/ia_high must be length-3 (dmax, drecov, dinit)")
             per_low.extend(ia_lo.tolist())
@@ -940,8 +942,8 @@ class RDIIUnitHydrograph:
 
         n = len(self._targets)
         self._box = _make_box_bounds(
-            np.tile(per_low, n).astype(np.float32),
-            np.tile(per_high, n).astype(np.float32),
+            np.tile(per_low, n).astype(np.float64),
+            np.tile(per_high, n).astype(np.float64),
         )
         # Cached (t, k) per target, preserved across apply.
         self._tk: list[tuple[float, float]] | None = None
@@ -977,7 +979,7 @@ class RDIIUnitHydrograph:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if self._tk is None:
             raise RuntimeError("RDIIUnitHydrograph.bind() must be called before apply()")
-        rows = np.asarray(value, dtype=np.float32).reshape(len(self._targets), self._stride)
+        rows = np.asarray(value, dtype=np.float64).reshape(len(self._targets), self._stride)
         inflows = adapter.solver.inflows
         for (uh, month, response), (t, k), row in zip(self._targets, self._tk, rows, strict=True):
             r = float(np.clip(row[0], self._r_low, self._r_high))
@@ -1069,11 +1071,11 @@ class ReactionCoefficientValue:
                 "or both be per-coefficient sequences"
             )
         if scalar_low:
-            self._low = np.full((n,), float(low), dtype=np.float32)
-            self._high = np.full((n,), float(high), dtype=np.float32)
+            self._low = np.full((n,), float(low), dtype=np.float64)
+            self._high = np.full((n,), float(high), dtype=np.float64)
         else:
-            self._low = np.asarray(low, dtype=np.float32)
-            self._high = np.asarray(high, dtype=np.float32)
+            self._low = np.asarray(low, dtype=np.float64)
+            self._high = np.asarray(high, dtype=np.float64)
             if self._low.shape != (n,) or self._high.shape != (n,):
                 raise ValueError(
                     "ReactionCoefficientValue: per-coefficient low/high must "
@@ -1122,7 +1124,7 @@ class ReactionCoefficientValue:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if not self._bound:
             raise RuntimeError("ReactionCoefficientValue.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         for cid, v in zip(self._coefficient_ids, clipped, strict=True):
             # Model / expression units, unconverted.
             adapter.write("coefficient.value", cid, float(v))
@@ -1240,7 +1242,7 @@ class HeatSourceTemperature:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if not self._bound:
             raise RuntimeError("HeatSourceTemperature.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         sources = adapter.solver.heat.sources
         for source, v in zip(self._sources, clipped, strict=True):
             sources[source] = float(v)  # degC; refused (not clamped) outside [-50, 100]
@@ -1331,7 +1333,7 @@ class WaterAgeSourceAge:
     def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
         if not self._bound:
             raise RuntimeError("WaterAgeSourceAge.bind() must be called before apply()")
-        clipped = np.clip(np.asarray(value, dtype=np.float32), self._low, self._high)
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
         source_ages = adapter.solver.water_age.globals
         for source, v in zip(self._sources, clipped, strict=True):
             source_ages[source] = float(v)  # hours; negative is legal (extracts age-volume)

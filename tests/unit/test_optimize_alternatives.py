@@ -185,3 +185,29 @@ def test_a_written_design_scores_what_its_evaluation_scored():
     policy = config.model_copy(update={"env_type": "market"})
     with pytest.raises(SpecError, match="tunes a policy"):
         apply_decisions(policy, decisions, None)
+
+
+def test_designs_keep_double_precision():
+    """0.013 has no exact float32: the evaluation, its record and a written model keep it."""
+    import numpy as np
+
+    folder = _out("double")
+    config = _config(
+        folder,
+        [
+            {
+                "kind": "field_design",
+                "params": {"path": "link.roughness", "ids": ["C1"], "low": 0.01, "high": 0.03},
+            }
+        ],
+    )
+    assert float(np.float32(0.013)) != 0.013  # what the float32 spaces evaluated
+    scored = evaluate_decisions(config, {"link.roughness": [0.013]})
+    assert scored["decisions"] == {"link.roughness": [0.013]}
+    adapter = SolverAdapter(folder / "model.inp", folder / "d.rpt", folder / "d.out")
+    adapter.open()
+    try:
+        apply_decisions(config, {"link.roughness": [0.013]}, adapter)
+        assert adapter.read("link.roughness", adapter.index("link", "C1")) == 0.013
+    finally:
+        adapter.close()

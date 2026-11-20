@@ -185,14 +185,14 @@ def flat_bounds(dims: list[DesignDimension]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def split_vector(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, np.ndarray]:
-    """Split a flat decision vector into per-dimension float32 arrays keyed by C{key}.
+    """Split a flat decision vector into per-dimension float64 arrays keyed by C{key}.
 
     @rtype: dict
     """
     payload: dict[str, np.ndarray] = {}
     offset = 0
     for dim in dims:
-        payload[dim.key] = np.asarray(vector[offset : offset + dim.size], dtype=np.float32)
+        payload[dim.key] = np.asarray(vector[offset : offset + dim.size], dtype=np.float64)
         offset += dim.size
     return payload
 

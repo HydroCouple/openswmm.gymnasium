@@ -83,7 +83,7 @@ class TestSpace(unittest.TestCase):
                 s = f.space
                 self.assertIsInstance(s, spaces.Box)
                 self.assertEqual(s.shape, (3,))
-                self.assertEqual(s.dtype, np.float32)
+                self.assertEqual(s.dtype, np.float64)  # designs keep double precision
 
     def test_bounds_propagate(self):
         for cls, _name, _kwarg, ids in _BOX_FACTORIES:

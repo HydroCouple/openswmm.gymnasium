@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model's own values for the kinds that set one field (`field_design`,
   `link_roughness`, `link_length`, `node_max_depth`). `join_decisions` is the
   inverse of `split_vector`.
+- **Design spaces are `float64`.** Every design factory's `Box`, its clipping and
+  `split_vector` keep double precision, so a design is evaluated, recorded and
+  written into a model at the value it was given (a roughness of 0.013 used to be
+  evaluated as 0.0130000003). Runtime actions and observations stay `float32`.
 - **`apply_decisions(env_config, decisions, adapter)`** writes an evaluated design
   onto an opened model through the config's own design factories, with the values the
   evaluation used, so a model written afterwards is the design that was scored.
