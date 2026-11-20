@@ -251,6 +251,7 @@ def run_study(
                         costs = [opt.failure_penalty] * len(names)
                         record.update(failed=True, error=outcome.error)
                     record["objectives"] = dict(zip(names, costs, strict=True))
+                    record["metrics"] = outcome.metrics
                     record["steps"] = outcome.steps
                     evaluations.append(record)
                     log.write(json.dumps(record) + "\n")

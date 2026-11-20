@@ -431,6 +431,8 @@ class EnvConfig(BaseModel):
     @ivar observations: Observation feature spec (must be non-empty).
     @ivar reward_terms: Reward terms; empty list means the env default
         (a single all-nodes C{FloodingVolume}).
+    @ivar objectives: Names of the reward terms a study optimizes, in order; C{None}
+        means every term. The other terms are recorded as metrics of each evaluation.
     @ivar control_interval_steps: Routing steps per env step (rtc/joint/mo_rtc).
     @ivar max_episode_steps: Optional truncation horizon (rtc/joint/mo_rtc).
     @ivar ideal_point: Per-objective best-case values (mo_rtc only, required).
@@ -449,6 +451,7 @@ class EnvConfig(BaseModel):
     policy_factory: PolicyFactorySpec | None = None
     observations: ObservationSpec
     reward_terms: list[RewardTermSpec] = []
+    objectives: list[str] | None = None
     control_interval_steps: int = 1
     max_episode_steps: int | None = None
     ideal_point: list[float] | None = None
@@ -480,6 +483,10 @@ class EnvConfig(BaseModel):
             raise ValueError("observations must declare at least one feature")
         if self.control_interval_steps < 1:
             raise ValueError("control_interval_steps must be >= 1")
+        if self.objectives is not None and (
+            not self.objectives or len(set(self.objectives)) != len(self.objectives)
+        ):
+            raise ValueError("objectives must name at least one reward term, each once")
 
         if self.env_type == "market":
             if self.market_config is None:

@@ -226,17 +226,28 @@ def join_decisions(dims: list[DesignDimension], decisions: dict[str, Any]) -> np
 
 
 def objective_directions(env_config: EnvConfig) -> dict[str, str]:
-    """Reward-term name to C{"minimize"}/C{"maximize"}, in config order.
+    """Objective name to C{"minimize"}/C{"maximize"}: the reward terms a study optimizes.
 
-    An empty config means the env default, a single all-nodes
+    Every term in config order, or the terms C{env_config.objectives} names, in its
+    order. An empty config means the env default, a single all-nodes
     C{flooding_volume} cost.
 
+    @raise SpecError: C{VALIDATION_ERROR} when an objective names no reward term.
     @rtype: dict
     """
     if not env_config.reward_terms:
-        return {"flooding_volume": "minimize"}
-    directions: dict[str, str] = {}
-    for spec in env_config.reward_terms:
-        term = spec.construct()
-        directions[term.name] = term.direction
-    return directions
+        directions = {"flooding_volume": "minimize"}
+    else:
+        directions = {}
+        for spec in env_config.reward_terms:
+            term = spec.construct()
+            directions[term.name] = term.direction
+    if env_config.objectives is None:
+        return directions
+    unknown = [n for n in env_config.objectives if n not in directions]
+    if unknown:
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] objectives {unknown} name no reward term; "
+            f"the terms are {list(directions)}."
+        )
+    return {n: directions[n] for n in env_config.objectives}

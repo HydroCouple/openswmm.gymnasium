@@ -139,8 +139,10 @@ def test_a_run_reproducing_its_observations_scores_a_perfect_fit():
     shutil.copy(_DATA / "site_drainage_example.inp", folder / "model.inp")
     _observations(folder, ["C11"])
     same = {"subcatchment.width": [1587.0]}  # the model's own width
-    nse = evaluate_decisions(_config(folder, "nse"), same)["objectives"]["nse_C11"]
+    scored = evaluate_decisions(_config(folder, "nse"), same)
+    nse = scored["objectives"]["nse_C11"]
     assert nse == pytest.approx(-1.0, abs=1e-6)  # maximized: recorded as a negated cost
+    assert scored["metrics"]["nse_C11"] == -nse  # a metric is the term's own value
     narrow = evaluate_decisions(_config(folder, "nse"), {"subcatchment.width": [150.0]})
     assert -narrow["objectives"]["nse_C11"] < 0.999
     rmse = evaluate_decisions(_config(folder, "rmse"), same)["objectives"]["rmse_C11"]

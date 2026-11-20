@@ -36,6 +36,7 @@ take the raw policy vector as their single action.
 
 from __future__ import annotations
 
+import math
 import multiprocessing
 import os
 from collections.abc import Callable, Sequence
@@ -69,11 +70,15 @@ class Evaluation:
         minimised: a C{maximize} term is negated); C{None} when it failed.
     @ivar steps: Env steps the episode took.
     @ivar error: Failure description, or C{None}.
+    @ivar metrics: Every reward term's value as the term reports it (not direction
+        adjusted), objective or not, by name in sorted order (so records read the same
+        from every executor); C{None} for a value that is not finite.
     """
 
     costs: list[float] | None
     steps: int = 0
     error: str | None = None
+    metrics: dict[str, float | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -133,7 +138,11 @@ class Evaluator:
             * (1.0 if self.directions[name] == "minimize" else -1.0)
             for name in self.objective_names
         ]
-        return Evaluation(costs=costs, steps=steps)
+        metrics = {
+            name: float(value) if math.isfinite(float(value)) else None
+            for name, value in sorted(components.items())
+        }
+        return Evaluation(costs=costs, steps=steps, metrics=metrics)
 
 
 #: Design kinds whose action is the value of one element field, so the model's own value
@@ -191,8 +200,9 @@ def evaluate_decisions(
 
     @param decisions: Dimension key to values, the C{decisions} of an evaluation record
         (L{baseline_decisions} gives the model's own).
-    @return: C{{"decisions", "objectives", "steps"}}, objectives as direction-adjusted
-        costs by reward-term name, like an C{evaluations.jsonl} record.
+    @return: C{{"decisions", "objectives", "metrics", "steps"}}, objectives as
+        direction-adjusted costs by name and metrics as every reward term's value, like an
+        C{evaluations.jsonl} record.
     @raise SpecError: The decisions do not match the env config's dimensions.
     @rtype: dict
     """
@@ -207,6 +217,7 @@ def evaluate_decisions(
         {
             "decisions": split_vector(dims, vector),
             "objectives": dict(zip(evaluator.objective_names, outcome.costs, strict=True)),
+            "metrics": outcome.metrics,
             "steps": outcome.steps,
         }
     )
