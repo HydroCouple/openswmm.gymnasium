@@ -140,6 +140,27 @@ def test_platypus_ask_tell_finds_a_two_objective_front():
     assert opt.ask() == []  # stays finished
 
 
+def _platypus_vectors(seed):
+    opt = make_optimizer(
+        "nsga2", np.zeros(2), np.ones(2), 2, budget=120, seed=seed, population_size=20
+    )
+    vectors = []
+    try:
+        while batch := opt.ask():
+            opt.tell(batch, [[v[0], 1.0 - v[0] + v[1]] for v in batch])
+            vectors += [v.tolist() for v in batch]
+    finally:
+        opt.close()
+    return vectors
+
+
+def test_platypus_repeats_exactly_for_one_seed():
+    pytest.importorskip("platypus")
+    first = _platypus_vectors(7)
+    assert first == _platypus_vectors(7)
+    assert first != _platypus_vectors(8)
+
+
 def test_platypus_close_mid_run_returns_promptly():
     pytest.importorskip("platypus")
     opt = make_optimizer("nsga2", np.zeros(2), np.ones(2), 2, budget=10_000, population_size=10)

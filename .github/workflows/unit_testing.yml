@@ -2,14 +2,14 @@ name: Unit Testing
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, dev]
     paths:
       - "src/**"
       - "tests/**"
       - "pyproject.toml"
       - ".github/workflows/unit_testing.yml"
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, dev]
     paths:
       - "src/**"
       - "tests/**"

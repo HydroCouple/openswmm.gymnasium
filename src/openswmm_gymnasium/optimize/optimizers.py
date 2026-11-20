@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import itertools
 import queue
+import random
 import threading
 from collections.abc import Sequence
 from typing import Protocol
@@ -131,6 +132,10 @@ class PlatypusOptimizer:
     semantics are Platypus's own: the run stops at the first generation that
     reaches C{budget} evaluations, counting offspring that are unchanged
     copies of a parent, which are not evaluated again.
+
+    Platypus draws from Python's process-wide C{random}. A C{seed} seeds it
+    just before the run starts, so one study at a time repeats exactly; studies
+    running at once in one process share that generator and do not.
     """
 
     def __init__(
@@ -141,6 +146,7 @@ class PlatypusOptimizer:
         n_objectives: int,
         budget: int,
         population_size: int,
+        seed: int | None = None,
     ) -> None:
         try:
             import platypus
@@ -179,6 +185,8 @@ class PlatypusOptimizer:
         problem.directions[:] = [platypus.Problem.MINIMIZE] * n_objectives
         problem.function = lambda variables: self._costs[tuple(variables)]
         cls = getattr(platypus, PLATYPUS_ALGORITHMS[algorithm])
+        if seed is not None:
+            random.seed(seed)
         engine = cls(problem, population_size=population_size, evaluator=_BatchEvaluator())
         self._thread = threading.Thread(
             target=self._run, args=(engine, budget), name="platypus", daemon=True
@@ -249,7 +257,7 @@ def make_optimizer(
     if algorithm == "grid_search":
         return GridSearch(low, high, budget, grid_levels, batch)
     if algorithm in PLATYPUS_ALGORITHMS:
-        return PlatypusOptimizer(algorithm, low, high, n_objectives, budget, population_size)
+        return PlatypusOptimizer(algorithm, low, high, n_objectives, budget, population_size, seed)
     raise SpecError(
         f"[{ErrorCode.VALIDATION_ERROR}] Unknown algorithm '{algorithm}'. "
         f"Valid algorithms: {', '.join(ALGORITHMS)}."

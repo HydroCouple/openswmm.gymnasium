@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Platypus studies repeat for one seed.** `make_optimizer(..., seed=...)` now
+  seeds Python's `random`, which the Platypus MOEAs draw from, just before the
+  run starts. `run_study` left it unseeded, so two NSGA-II studies with the same
+  seed proposed different candidates. The generator is process-wide: studies
+  running at once in one process still share it.
 - `add_field` on a catalog method (`"groundwater2d.ledger"`) raised
   `KeyError: 'type'`; it now raises `ValueError` naming the path.
 
