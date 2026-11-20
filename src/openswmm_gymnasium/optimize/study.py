@@ -285,7 +285,7 @@ def run_study(
             result,
             {
                 "executor": "local",
-                "package": str(output_dir / "package"),
+                "package": "package",  # relative to the manifest's folder
                 "revision_manifest_sha256": revision.digest(),
             },
         )
