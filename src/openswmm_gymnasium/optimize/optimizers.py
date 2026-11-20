@@ -25,6 +25,8 @@ process entirely.
 
   - L{RandomSearch} -- uniform sampling baseline.
   - L{GridSearch} -- full factorial over per-dimension levels, truncated at the budget.
+  - L{Alternatives} -- the candidates the caller gives, each once, in order:
+    an alternatives analysis, or a baseline.
   - L{PlatypusOptimizer} -- any Platypus MOEA (C{nsga2}, C{nsga3}, C{spea2},
     C{moead}, C{gde3}); one batch per generation. Needs the C{platypus} extra.
 
@@ -56,7 +58,7 @@ PLATYPUS_ALGORITHMS = {
 }
 
 #: Every algorithm name L{make_optimizer} accepts.
-ALGORITHMS = ("random_search", "grid_search", *PLATYPUS_ALGORITHMS)
+ALGORITHMS = ("random_search", "grid_search", "alternatives", *PLATYPUS_ALGORITHMS)
 
 
 class Optimizer(Protocol):
@@ -233,6 +235,48 @@ class PlatypusOptimizer:
             self._thread.join(timeout=10)
 
 
+class Alternatives:
+    """The given candidates, each once and in order, in batches of C{batch}.
+
+    Every candidate must lie within the design bounds: a factory would clip a value
+    outside them, so the evaluated design would not be the one given.
+    """
+
+    def __init__(
+        self,
+        candidates: Sequence[np.ndarray],
+        low: np.ndarray,
+        high: np.ndarray,
+        batch: int = 1,
+    ) -> None:
+        vectors = [np.asarray(c, dtype=float) for c in candidates]
+        if not vectors:
+            raise SpecError(f"[{ErrorCode.VALIDATION_ERROR}] alternatives needs a candidate.")
+        for i, v in enumerate(vectors, start=1):
+            if v.shape != np.shape(low):
+                raise SpecError(
+                    f"[{ErrorCode.VALIDATION_ERROR}] Candidate {i} has {v.size} values; "
+                    f"the design has {np.size(low)}."
+                )
+            outside = np.flatnonzero((v < low) | (v > high))
+            if outside.size:
+                raise SpecError(
+                    f"[{ErrorCode.VALIDATION_ERROR}] Candidate {i} is outside the design "
+                    f"bounds at component(s) {outside.tolist()}."
+                )
+        self._pending, self._batch = vectors, max(1, batch)
+
+    def ask(self) -> list[np.ndarray]:
+        out, self._pending = self._pending[: self._batch], self._pending[self._batch :]
+        return out
+
+    def tell(self, vectors, costs) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
 def make_optimizer(
     algorithm: str,
     low: np.ndarray,
@@ -244,11 +288,13 @@ def make_optimizer(
     population_size: int = 20,
     grid_levels: int = 5,
     batch: int = 1,
+    candidates: Sequence[np.ndarray] | None = None,
 ) -> Optimizer:
     """The optimiser for an algorithm name (see L{ALGORITHMS}).
 
-    @param batch: Candidates per C{ask()} for random and grid search (the
-        Platypus batch is its generation).
+    @param batch: Candidates per C{ask()} for random and grid search and for
+        alternatives (the Platypus batch is its generation).
+    @param candidates: The decision vectors an C{"alternatives"} search evaluates.
     @raise SpecError: C{VALIDATION_ERROR} for an unknown algorithm,
         C{DEPENDENCY_MISSING} when platypus-opt is needed but absent.
     """
@@ -256,6 +302,8 @@ def make_optimizer(
         return RandomSearch(low, high, budget, seed, batch)
     if algorithm == "grid_search":
         return GridSearch(low, high, budget, grid_levels, batch)
+    if algorithm == "alternatives":
+        return Alternatives(candidates or [], low, high, batch)
     if algorithm in PLATYPUS_ALGORITHMS:
         return PlatypusOptimizer(algorithm, low, high, n_objectives, budget, population_size, seed)
     raise SpecError(

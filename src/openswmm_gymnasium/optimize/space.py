@@ -30,6 +30,7 @@ group is one L{DesignDimension}.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -194,6 +195,34 @@ def split_vector(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, n
         payload[dim.key] = np.asarray(vector[offset : offset + dim.size], dtype=np.float32)
         offset += dim.size
     return payload
+
+
+def join_decisions(dims: list[DesignDimension], decisions: dict[str, Any]) -> np.ndarray:
+    """The flat decision vector for decisions keyed by dimension C{key}: the inverse of
+    L{split_vector}, and the shape of an C{evaluations.jsonl} record's C{decisions}.
+
+    @raise SpecError: C{VALIDATION_ERROR} when a key is missing or unknown, or a
+        dimension has the wrong number of values.
+    @rtype: L{numpy.ndarray}
+    """
+    keys = [d.key for d in dims]
+    unknown = sorted(set(decisions) - set(keys))
+    missing = [k for k in keys if k not in decisions]
+    if unknown or missing:
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] Decisions must have exactly the keys "
+            f"{keys}; missing {missing}, unknown {unknown}."
+        )
+    parts = []
+    for dim in dims:
+        values = np.atleast_1d(np.asarray(decisions[dim.key], dtype=float))
+        if values.shape != (dim.size,):
+            raise SpecError(
+                f"[{ErrorCode.VALIDATION_ERROR}] '{dim.key}' takes {dim.size} value(s) "
+                f"({', '.join(dim.labels)}), not {values.size}."
+            )
+        parts.append(values)
+    return np.concatenate(parts)
 
 
 def objective_directions(env_config: EnvConfig) -> dict[str, str]:

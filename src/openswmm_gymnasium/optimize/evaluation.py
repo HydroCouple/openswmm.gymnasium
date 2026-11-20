@@ -48,6 +48,8 @@ import numpy as np
 from openswmm_gymnasium.optimize.space import (
     POLICY_ENV_TYPES,
     DesignDimension,
+    design_dimensions,
+    join_decisions,
     objective_directions,
     split_vector,
 )
@@ -132,6 +134,82 @@ class Evaluator:
             for name in self.objective_names
         ]
         return Evaluation(costs=costs, steps=steps)
+
+
+#: Design kinds whose action is the value of one element field, so the model's own value
+#: is a baseline. A kind that resizes or reshapes (link_diameter, storage_volume, ...)
+#: has no single field to read.
+_FIELD_KINDS = {
+    "field_design": None,
+    "link_roughness": "link.roughness",
+    "link_length": "link.length",
+    "node_max_depth": "node.max_depth",
+}
+
+
+def baseline_decisions(env_config: EnvConfig) -> dict[str, list[float]]:
+    """The model's own values for every design dimension, read from the engine.
+
+    Evaluated with L{evaluate_decisions}, this is the unchanged model scored by the
+    env's objectives.
+
+    @raise SpecError: C{VALIDATION_ERROR} for a design kind with no single field to read.
+    @rtype: dict
+    """
+    from openswmm_gymnasium._engine import SolverAdapter, element_kind
+    from openswmm_gymnasium.spec.errors import ErrorCode, SpecError
+
+    out: dict[str, list[float]] = {}
+    adapter = SolverAdapter(env_config.inp_path, os.devnull, os.devnull)
+    adapter.open()
+    try:
+        for spec, dim in zip(
+            env_config.design_factories, design_dimensions(env_config), strict=True
+        ):
+            if spec.kind not in _FIELD_KINDS:
+                raise SpecError(
+                    f"[{ErrorCode.VALIDATION_ERROR}] '{spec.kind}' has no single field to read "
+                    "a baseline from; pass its values."
+                )
+            path = _FIELD_KINDS[spec.kind] or spec.params["path"]
+            ids = spec.params.get("ids") or spec.params.get("link_ids") or spec.params["node_ids"]
+            kind = element_kind(path)
+            out[dim.key] = [float(adapter.read(path, adapter.index(kind, i))) for i in ids]
+    finally:
+        adapter.close()
+    return out
+
+
+def evaluate_decisions(
+    env_config: EnvConfig,
+    decisions: dict[str, Any],
+    *,
+    seed: int | None = None,
+    max_steps: int = 10_000,
+) -> dict[str, Any]:
+    """Score one design or policy: one episode, as a study would evaluate it.
+
+    @param decisions: Dimension key to values, the C{decisions} of an evaluation record
+        (L{baseline_decisions} gives the model's own).
+    @return: C{{"decisions", "objectives", "steps"}}, objectives as direction-adjusted
+        costs by reward-term name, like an C{evaluations.jsonl} record.
+    @raise SpecError: The decisions do not match the env config's dimensions.
+    @rtype: dict
+    """
+    dims = design_dimensions(env_config)
+    vector = join_decisions(dims, decisions)
+    evaluator = Evaluator(env_config, dims, seed=seed, max_steps=max_steps)
+    try:
+        outcome = evaluator.evaluate(vector)
+    finally:
+        evaluator.close()
+    return json_safe(
+        {
+            "decisions": split_vector(dims, vector),
+            "objectives": dict(zip(evaluator.objective_names, outcome.costs, strict=True)),
+            "steps": outcome.steps,
+        }
+    )
 
 
 def default_workers() -> int:

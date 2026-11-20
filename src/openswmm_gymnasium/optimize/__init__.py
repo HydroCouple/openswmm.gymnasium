@@ -47,11 +47,14 @@ from openswmm_gymnasium.optimize.evaluation import (
     InProcessPool,
     StudyCancelled,
     WorkerPool,
+    baseline_decisions,
     default_workers,
+    evaluate_decisions,
 )
 from openswmm_gymnasium.optimize.optimizers import (
     ALGORITHMS,
     PLATYPUS_ALGORITHMS,
+    Alternatives,
     GridSearch,
     Optimizer,
     PlatypusOptimizer,
@@ -62,6 +65,7 @@ from openswmm_gymnasium.optimize.space import (
     DesignDimension,
     design_dimensions,
     flat_bounds,
+    join_decisions,
     objective_directions,
     split_vector,
 )
@@ -69,6 +73,7 @@ from openswmm_gymnasium.optimize.study import OptimizationConfig, assemble_resul
 
 __all__ = [
     "ALGORITHMS",
+    "Alternatives",
     "PLATYPUS_ALGORITHMS",
     "DesignDimension",
     "Evaluation",
@@ -82,9 +87,12 @@ __all__ = [
     "StudyCancelled",
     "WorkerPool",
     "assemble_result",
+    "baseline_decisions",
     "default_workers",
     "design_dimensions",
+    "evaluate_decisions",
     "flat_bounds",
+    "join_decisions",
     "make_optimizer",
     "objective_directions",
     "run_study",

@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"node.invert_elev"`, `"link.barrels"`), written once before the simulation
   initializes. Its components are labelled `field_design:<element id>`, and a
   design dimension's key is now always the factory's own name.
+- **Alternatives and single designs.** `algorithm="alternatives"` with
+  `OptimizationConfig.candidates` (decision mappings, the `decisions` of an
+  evaluation record) evaluates exactly those designs, once each and in order,
+  and refuses one outside the design bounds. `evaluate_decisions(env_config,
+  decisions)` scores one design as a study would; `baseline_decisions` reads
+  the model's own values for the kinds that set one field (`field_design`,
+  `link_roughness`, `link_length`, `node_max_depth`). `join_decisions` is the
+  inverse of `split_vector`.
 
 ### Added — units, requirements, 2D cells and declarative specs
 

@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from openswmm_gymnasium.optimize.evaluation import (
     InProcessPool,
@@ -48,6 +48,7 @@ from openswmm_gymnasium.optimize.optimizers import PLATYPUS_ALGORITHMS, make_opt
 from openswmm_gymnasium.optimize.space import (
     design_dimensions,
     flat_bounds,
+    join_decisions,
     objective_directions,
     split_vector,
 )
@@ -58,8 +59,10 @@ from openswmm_gymnasium.spec.envs import json_safe
 class OptimizationConfig(BaseModel):
     """Declarative optimization-run settings.
 
-    @ivar algorithm: C{"random_search"}, C{"grid_search"}, or a lowercase
-        Platypus MOEA name (e.g. C{"nsga2"}).
+    @ivar algorithm: C{"random_search"}, C{"grid_search"}, C{"alternatives"}, or a
+        lowercase Platypus MOEA name (e.g. C{"nsga2"}).
+    @ivar candidates: For C{"alternatives"}: the designs to evaluate, each a mapping
+        of dimension key to its values (the C{decisions} of an evaluation record).
     @ivar budget: Maximum design evaluations.
     @ivar population_size: MOEA population size (Platypus only).
     @ivar grid_levels: Per-dimension levels for C{grid_search}.
@@ -85,6 +88,23 @@ class OptimizationConfig(BaseModel):
     workers: int | None = Field(default=None, ge=0)
     on_failure: Literal["fail", "penalty"] = "fail"
     failure_penalty: float = 1e12
+    candidates: list[dict[str, list[float]]] | None = None
+
+    @model_validator(mode="after")
+    def _alternatives_have_candidates(self) -> OptimizationConfig:
+        if (self.algorithm == "alternatives") != bool(self.candidates):
+            raise ValueError("candidates are given with, and only with, algorithm 'alternatives'")
+        if self.candidates and len(self.candidates) > self.budget:
+            raise ValueError(
+                f"{len(self.candidates)} candidates exceed the budget of {self.budget}"
+            )
+        return self
+
+    def candidate_vectors(self, dims) -> list[np.ndarray] | None:
+        """The candidates as flat decision vectors for L{make_optimizer}, or C{None}."""
+        if not self.candidates:
+            return None
+        return [join_decisions(dims, c) for c in self.candidates]
 
     def resolved(self) -> dict[str, Any]:
         """The search settings that decide which candidates are evaluated.
@@ -104,6 +124,8 @@ class OptimizationConfig(BaseModel):
             out["population_size"] = self.population_size
         elif self.algorithm == "grid_search":
             out["grid_levels"] = self.grid_levels
+        elif self.algorithm == "alternatives":
+            out["candidates"] = len(self.candidates or [])
         return out
 
 
@@ -175,6 +197,7 @@ def run_study(
         population_size=opt.population_size,
         grid_levels=opt.grid_levels,
         batch=max(1, workers),
+        candidates=opt.candidate_vectors(dims),
     )
     evaluations: list[dict[str, Any]] = []
     pool_args = {"seed": opt.seed, "max_steps": opt.max_steps_per_episode}
