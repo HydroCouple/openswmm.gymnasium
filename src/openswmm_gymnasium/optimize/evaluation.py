@@ -50,6 +50,7 @@ from openswmm_gymnasium.events import aggregate
 from openswmm_gymnasium.optimize.space import (
     POLICY_ENV_TYPES,
     DesignDimension,
+    decision_values,
     design_dimensions,
     join_decisions,
     objective_directions,
@@ -181,6 +182,7 @@ class Evaluator:
 #: has no single field to read.
 _FIELD_KINDS = {
     "field_design": None,
+    "field_choice": None,
     "link_roughness": "link.roughness",
     "link_length": "link.length",
     "node_max_depth": "node.max_depth",
@@ -246,7 +248,7 @@ def evaluate_decisions(
         evaluator.close()
     return json_safe(
         {
-            "decisions": split_vector(dims, vector),
+            "decisions": decision_values(dims, vector),
             "objectives": dict(zip(evaluator.objective_names, outcome.costs, strict=True)),
             "metrics": outcome.metrics,
             "steps": outcome.steps,

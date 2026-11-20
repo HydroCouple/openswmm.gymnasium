@@ -72,6 +72,8 @@ One B{generic} factory reaches every other writable scalar field:
     design-time counterpart of L{openswmm_gymnasium.spaces.runtime.FieldSetpoint}.
     Prefer a named factory where one exists: it encodes engine semantics a raw
     field write does not (L{LinkDiameter} rescales the whole section).
+  - L{FieldChoice} — the same fields, each element taking one of listed values;
+    its action is the choice's index, so optimizers search it as a discrete one.
 
 The remaining §3.1 factories (C{OutfallStage}, C{WeirCrestElev},
 C{OrificeMaxOpening}, C{PumpCurveChoice}, C{ControlRuleSelection}) land in
@@ -1402,3 +1404,61 @@ class FieldDesign:
             else:
                 written = float(v)
             adapter.write(self._path, idx, written)
+
+
+def choice_indices(value: np.ndarray, n: int) -> np.ndarray:
+    """The choice each component of an action in C{[0, n)} picks: its integer part,
+    kept in C{[0, n - 1]}.
+
+    @rtype: L{numpy.ndarray} of int
+    """
+    return np.clip(np.floor(np.asarray(value, dtype=np.float64)), 0, n - 1).astype(int)
+
+
+class FieldChoice(FieldDesign):
+    """One of a list of values for a writable scalar element field, by catalog path.
+
+    Like L{FieldDesign}, but each component's action lies in C{[0, len(choices))} and
+    its integer part picks the value written (L{choice_indices}), so every choice is
+    equally wide and an optimizer searching it draws indices. A study records the value
+    chosen. For catalog sizes and other discrete values, and for C{int} and C{bool}
+    fields (C{"link.barrels"} with choices C{[1, 2, 3]}).
+
+    @ivar choices: The values, in order.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        ids: Sequence[str],
+        choices: Sequence[float],
+        name: str | None = None,
+    ) -> None:
+        """
+        @param path: Catalog path of a writable scalar element field.
+        @param ids: Element IDs the design dimension spans.
+        @param choices: At least two distinct values, in the field's units; whole
+            numbers for an C{int} field, 0 and 1 for a C{bool} one.
+        @param name: Action-space key; defaults to the path.
+        @raise ValueError: As L{FieldDesign}, or the choices do not suit the field.
+        """
+        values = tuple(float(c) for c in choices)
+        if len(values) < 2 or len(set(values)) != len(values):
+            raise ValueError("FieldChoice needs at least two distinct choices")
+        super().__init__(path, ids, min(values), max(values), name)
+        if self._type == "int" and any(v != round(v) for v in values):
+            raise ValueError(f"FieldChoice: {path!r} is an int field; choices must be whole")
+        if self._type == "bool" and not set(values) <= {0.0, 1.0}:
+            raise ValueError(f"FieldChoice: {path!r} is a bool field; choices are 0 and 1")
+        self.choices = values
+        self._box = _make_box(0.0, float(len(values)), len(self._ids))
+
+    def chosen(self, value: np.ndarray) -> np.ndarray:
+        """The values an action picks.
+
+        @rtype: L{numpy.ndarray}
+        """
+        return np.asarray(self.choices)[choice_indices(value, len(self.choices))]
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        super().apply(adapter, self.chosen(value))

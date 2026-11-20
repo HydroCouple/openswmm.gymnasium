@@ -49,6 +49,8 @@ class DesignDimension:
     @ivar labels: Per-component labels, C{"<kind>:<element_id>"}.
     @ivar low: Lower bound: a scalar broadcast across components, or a per-component tuple.
     @ivar high: Upper bound, scalar or per-component like C{low}.
+    @ivar choices: For a discrete dimension, the values each component chooses from;
+        its components then lie in C{[0, len(choices))} and pick by integer part.
 
     Tuple bounds allow different physical ranges for each component, such as
     storage C{(a,b,c)} or RDII C{(R,dmax,drecov,dinit)}.
@@ -58,6 +60,7 @@ class DesignDimension:
     labels: tuple[str, ...]
     low: float | tuple[float, ...]
     high: float | tuple[float, ...]
+    choices: tuple[float, ...] | None = None
 
     @property
     def size(self) -> int:
@@ -167,6 +170,7 @@ def design_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
                 labels=labels,
                 low=tuple(lo.tolist()),
                 high=tuple(hi.tolist()),
+                choices=getattr(factory, "choices", None),
             )
         )
     return dims
@@ -197,12 +201,31 @@ def split_vector(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, n
     return payload
 
 
+def decision_values(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, np.ndarray]:
+    """The decisions a flat vector stands for, by key: L{split_vector}, with a discrete
+    dimension's components as the values they choose.
+
+    What C{evaluations.jsonl} records and L{join_decisions} reads back.
+
+    @rtype: dict
+    """
+    from openswmm_gymnasium.spaces.design import choice_indices
+
+    values = split_vector(dims, vector)
+    for dim in dims:
+        if dim.choices is not None:
+            picked = choice_indices(values[dim.key], len(dim.choices))
+            values[dim.key] = np.asarray(dim.choices, dtype=np.float64)[picked]
+    return values
+
+
 def join_decisions(dims: list[DesignDimension], decisions: dict[str, Any]) -> np.ndarray:
     """The flat decision vector for decisions keyed by dimension C{key}: the inverse of
-    L{split_vector}, and the shape of an C{evaluations.jsonl} record's C{decisions}.
+    L{decision_values}, and the shape of an C{evaluations.jsonl} record's C{decisions}.
+    A discrete dimension's value becomes the middle of its choice's index interval.
 
-    @raise SpecError: C{VALIDATION_ERROR} when a key is missing or unknown, or a
-        dimension has the wrong number of values.
+    @raise SpecError: C{VALIDATION_ERROR} when a key is missing or unknown, a
+        dimension has the wrong number of values, or a value is not one of its choices.
     @rtype: L{numpy.ndarray}
     """
     keys = [d.key for d in dims]
@@ -221,6 +244,15 @@ def join_decisions(dims: list[DesignDimension], decisions: dict[str, Any]) -> np
                 f"[{ErrorCode.VALIDATION_ERROR}] '{dim.key}' takes {dim.size} value(s) "
                 f"({', '.join(dim.labels)}), not {values.size}."
             )
+        if dim.choices is not None:
+            index = {v: i for i, v in enumerate(dim.choices)}
+            wrong = [float(v) for v in values if float(v) not in index]
+            if wrong:
+                raise SpecError(
+                    f"[{ErrorCode.VALIDATION_ERROR}] '{dim.key}' chooses from "
+                    f"{list(dim.choices)}; {wrong} is not one of them."
+                )
+            values = np.array([index[float(v)] + 0.5 for v in values])
         parts.append(values)
     return np.concatenate(parts)
 

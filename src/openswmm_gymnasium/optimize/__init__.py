@@ -66,6 +66,7 @@ from openswmm_gymnasium.optimize.optimizers import (
 )
 from openswmm_gymnasium.optimize.space import (
     DesignDimension,
+    decision_values,
     design_dimensions,
     flat_bounds,
     join_decisions,
@@ -94,6 +95,7 @@ __all__ = [
     "WorkerPool",
     "assemble_result",
     "baseline_decisions",
+    "decision_values",
     "default_workers",
     "design_dimensions",
     "evaluate_decisions",

@@ -32,7 +32,12 @@ from __future__ import annotations
 from typing import Any
 
 from openswmm_gymnasium._engine import SolverAdapter
-from openswmm_gymnasium.optimize.space import design_dimensions, join_decisions, split_vector
+from openswmm_gymnasium.optimize.space import (
+    decision_values,
+    design_dimensions,
+    join_decisions,
+    split_vector,
+)
 from openswmm_gymnasium.spec.config import EnvConfig
 from openswmm_gymnasium.spec.errors import ErrorCode, SpecError
 
@@ -56,12 +61,13 @@ def apply_decisions(
             "policy, not the model; there is no design to write onto it."
         )
     dims = design_dimensions(env_config)
-    values = split_vector(dims, join_decisions(dims, decisions))  # as evaluated
+    vector = join_decisions(dims, decisions)
+    actions, values = split_vector(dims, vector), decision_values(dims, vector)  # as evaluated
     applied: list[dict[str, Any]] = []
     for spec, dim in zip(env_config.design_factories, dims, strict=True):
         factory = spec.construct()
         factory.bind(adapter)
-        factory.apply(adapter, values[dim.key])
+        factory.apply(adapter, actions[dim.key])
         for label, value in zip(dim.labels, values[dim.key], strict=True):
             _kind, sep, element = label.partition(":")
             applied.append(

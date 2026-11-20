@@ -50,11 +50,11 @@ from openswmm_gymnasium.optimize.evaluation import (
 )
 from openswmm_gymnasium.optimize.optimizers import PLATYPUS_ALGORITHMS, make_optimizer
 from openswmm_gymnasium.optimize.space import (
+    decision_values,
     design_dimensions,
     flat_bounds,
     join_decisions,
     objective_directions,
-    split_vector,
 )
 from openswmm_gymnasium.spec.config import EnvConfig
 from openswmm_gymnasium.spec.envs import json_safe
@@ -239,7 +239,7 @@ def run_study(
                 for vector, outcome in zip(batch, outcomes, strict=True):
                     record: dict[str, Any] = {
                         "evaluation": len(evaluations) + 1,
-                        "decisions": json_safe(split_vector(dims, vector)),
+                        "decisions": json_safe(decision_values(dims, vector)),
                     }
                     if outcome.error is None:
                         costs = outcome.costs

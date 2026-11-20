@@ -38,6 +38,7 @@ EXPECTED_KINDS = {
     },
     "design_factory": {
         "field_design",
+        "field_choice",
         "link_roughness",
         "link_length",
         "link_diameter",

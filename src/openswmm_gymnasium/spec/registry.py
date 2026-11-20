@@ -338,6 +338,21 @@ class FieldDesignParams(_Params):
     name: str | None = None
 
 
+class FieldChoiceParams(_Params):
+    """Params for the C{field_choice} design factory.
+
+    @ivar path: Catalog path of a writable C{float}, C{int} or C{bool} element field.
+    @ivar ids: Element IDs the design dimension spans (required).
+    @ivar choices: At least two distinct values, in the field's units.
+    @ivar name: Action-space key; defaults to the path.
+    """
+
+    path: str
+    ids: list[str] = Field(min_length=1)
+    choices: list[float] = Field(min_length=2)
+    name: str | None = None
+
+
 class _BoundedLinkDesignParams(_Params):
     """Shared shape for link design factories (roughness/length/diameter).
 
@@ -896,6 +911,14 @@ for _spec in [
         FieldDesignParams,
         "Design-time value of any writable float, int or bool engine field (catalog path) "
         "per element in [low,high].",
+    ),
+    KindSpec(
+        "field_choice",
+        "design_factory",
+        "openswmm_gymnasium.spaces.design:FieldChoice",
+        FieldChoiceParams,
+        "Design-time choice among listed values of any writable float, int or bool engine "
+        "field (catalog path) per element; optimizers draw the choice's index.",
     ),
     KindSpec(
         "link_roughness",
