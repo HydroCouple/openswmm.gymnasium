@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The package version is now `0.1.0.dev1`: hydrocouple.platform and openswmm.mcp need
+the study manifest, `apply_decisions` and `evaluate_decisions` below.
+
 ### Added — scenarios and alternatives (ecosystem Phase 2)
 
 - **`field_design`** (`FieldDesign`): a design factory over any writable
