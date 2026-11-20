@@ -20,8 +20,10 @@ Run a design or policy search over an env config.
 L{run_study} drives an ask/tell optimiser: each batch it asks for is
 evaluated (in parallel on worker processes by default), logged to
 C{evaluations.jsonl}, and told back. The Pareto set (or the best
-candidate for one objective) goes to C{result.json}. Both files are written
-to a user-visible directory.
+candidate for one objective) goes to C{result.json}. With hydrocouple.platform
+installed, C{study-manifest.json} holds the definition, evaluations and result
+in the platform's contract (L{openswmm_gymnasium.optimize.manifest}). All are
+written to a user-visible directory.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -31,6 +33,7 @@ to a user-visible directory.
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -38,6 +41,7 @@ from typing import Any, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from openswmm_gymnasium.optimize import manifest as _manifest
 from openswmm_gymnasium.optimize.evaluation import (
     InProcessPool,
     StudyCancelled,
@@ -166,11 +170,17 @@ def run_study(
     *,
     should_stop: Callable[[], bool] = lambda: False,
     on_evaluation: Callable[[dict[str, Any]], None] | None = None,
+    manifest: bool | None = None,
 ) -> dict[str, Any]:
     """Search the env config's design or policy space; return the result payload.
 
     Writes C{evaluations.jsonl} (one record per candidate, in the order the
-    optimiser proposed them) and C{result.json} under C{output_dir}.
+    optimiser proposed them) and C{result.json} under C{output_dir}, and the
+    study manifest with the model packaged under C{output_dir/package}.
+
+    @param manifest: C{True} requires the study manifest; C{False} skips it; C{None}
+        writes it when hydrocouple.platform is installed and the model can be
+        packaged, and warns when it cannot be.
 
     @param should_stop: Polled between candidates; when true the study
         stops and L{StudyCancelled} is raised.
@@ -184,6 +194,14 @@ def run_study(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     dims = design_dimensions(env_config)
+    packaged = None
+    if manifest or (manifest is None and _manifest.available()):
+        try:
+            packaged = _manifest.package_locally(env_config, output_dir)
+        except Exception as exc:  # the platform's PackagingError, or the platform missing
+            if manifest:
+                raise
+            warnings.warn(f"no study manifest: {exc}", stacklevel=2)
     names = list(objective_directions(env_config))
     low, high = flat_bounds(dims)
     workers = default_workers() if opt.workers is None else opt.workers
@@ -251,4 +269,17 @@ def run_study(
     }
     result = json_safe(result)
     (output_dir / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    if packaged is not None:
+        inputs, model, revision = packaged
+        _manifest.write_study_manifest(
+            output_dir,
+            _manifest.study_definition(env_config, opt, dims, inputs, model),
+            evaluations,
+            result,
+            {
+                "executor": "local",
+                "package": str(output_dir / "package"),
+                "revision_manifest_sha256": revision.digest(),
+            },
+        )
     return result

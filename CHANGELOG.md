@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model's own values for the kinds that set one field (`field_design`,
   `link_roughness`, `link_length`, `node_max_depth`). `join_decisions` is the
   inverse of `split_vector`.
+- **Study manifest.** With hydrocouple.platform installed, `run_study` packages
+  the model under `<output>/package` and writes `study-manifest.json` in the
+  platform's `study-manifest-1` contract: the definition (model by its packaged
+  files, env config, dimensions, objectives, every search setting), every
+  evaluation and the result, with how it ran in `runtime`. The platform's
+  `run_platform_study` writes the same file through the same
+  `optimize.manifest.study_definition`, so the two compare equal apart from
+  `runtime`. `run_study(manifest=False)` skips it; a model that cannot be
+  packaged gives a warning and no manifest.
 
 ### Added — units, requirements, 2D cells and declarative specs
 
