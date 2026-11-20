@@ -149,14 +149,20 @@ def design_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
         hi = np.asarray(space.high, dtype=float).ravel()
         size = int(lo.shape[0])
         params = spec.params
-        ids = params.get("link_ids") or params.get("node_ids") or params.get("subcatch_ids") or []
+        ids = (
+            params.get("link_ids")
+            or params.get("node_ids")
+            or params.get("subcatch_ids")
+            or params.get("ids")
+            or []
+        )
         if len(ids) == size:
             labels = tuple(f"{spec.kind}:{eid}" for eid in ids)
         else:
             labels = tuple(f"{spec.kind}[{i}]" for i in range(size))
         dims.append(
             DesignDimension(
-                key=params.get("name", spec.kind),
+                key=factory.name,
                 labels=labels,
                 low=tuple(lo.tolist()),
                 high=tuple(hi.tolist()),

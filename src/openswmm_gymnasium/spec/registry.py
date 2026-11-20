@@ -300,6 +300,24 @@ class HeatSourceTemperatureSetpointParams(_HeatSourceTempParams):
 # -- design action factories -------------------------------------------------
 
 
+class FieldDesignParams(_Params):
+    """Params for the C{field_design} design factory.
+
+    @ivar path: Catalog path of a writable C{float}, C{int} or C{bool}
+        element field, e.g. C{"subcatchment.width"}.
+    @ivar ids: Element IDs the design dimension spans (required).
+    @ivar low: Lower bound of every component, in the field's units.
+    @ivar high: Upper bound of every component.
+    @ivar name: Action-space key; defaults to the path.
+    """
+
+    path: str
+    ids: list[str] = Field(min_length=1)
+    low: float
+    high: float
+    name: str | None = None
+
+
 class _BoundedLinkDesignParams(_Params):
     """Shared shape for link design factories (roughness/length/diameter).
 
@@ -843,6 +861,14 @@ for _spec in [
         "this is an open-loop / feed-forward actuator.",
     ),
     # design factories (openswmm_gymnasium.spaces.design)
+    KindSpec(
+        "field_design",
+        "design_factory",
+        "openswmm_gymnasium.spaces.design:FieldDesign",
+        FieldDesignParams,
+        "Design-time value of any writable float, int or bool engine field (catalog path) "
+        "per element in [low,high].",
+    ),
     KindSpec(
         "link_roughness",
         "design_factory",

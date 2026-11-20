@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — scenarios and alternatives (ecosystem Phase 2)
+
+- **`field_design`** (`FieldDesign`): a design factory over any writable
+  `float`, `int` or `bool` element field by catalog path (`"subcatchment.width"`,
+  `"node.invert_elev"`, `"link.barrels"`), written once before the simulation
+  initializes. Its components are labelled `field_design:<element id>`, and a
+  design dimension's key is now always the factory's own name.
+
 ### Added — units, requirements, 2D cells and declarative specs
 
 - **Observation units.** `ObservationBuilder.units(unit_system, flow_units)`

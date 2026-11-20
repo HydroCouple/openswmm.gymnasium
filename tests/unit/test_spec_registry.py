@@ -36,6 +36,7 @@ EXPECTED_KINDS = {
         "heat_source_temperature_setpoint",
     },
     "design_factory": {
+        "field_design",
         "link_roughness",
         "link_length",
         "link_diameter",

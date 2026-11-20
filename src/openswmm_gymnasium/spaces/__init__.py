@@ -45,6 +45,7 @@ L{SolverAdapter.initialize}.
 from openswmm_gymnasium.spaces.control_curve import ControlCurvePolicySpace
 from openswmm_gymnasium.spaces.design import (
     DesignActionFactory,
+    FieldDesign,
     HeatSourceTemperature,
     LIDPlacement,
     LinkDiameter,
@@ -72,6 +73,7 @@ __all__ = [
     "HeatSourceTemperatureSetpoint",
     "FieldSetpoint",
     "DesignActionFactory",
+    "FieldDesign",
     "LinkRoughness",
     "LinkLength",
     "LinkDiameter",

@@ -63,6 +63,14 @@ calibration / inverse-problem handles at least as much as CIP levers.
   - L{WaterAgeSourceAge} — global source age per water-age pathway (hours;
     B{negative values are legal} — they extract age-volume).
 
+One B{generic} factory reaches every other writable scalar field:
+
+  - L{FieldDesign} — any writable C{float}, C{int} or C{bool} element field by
+    its catalog path (C{"subcatchment.width"}, C{"node.invert_elev"}, ...), the
+    design-time counterpart of L{openswmm_gymnasium.spaces.runtime.FieldSetpoint}.
+    Prefer a named factory where one exists: it encodes engine semantics a raw
+    field write does not (L{LinkDiameter} rescales the whole section).
+
 The remaining §3.1 factories (C{OutfallStage}, C{WeirCrestElev},
 C{OrificeMaxOpening}, C{PumpCurveChoice}, C{ControlRuleSelection}) land in
 subsequent phases as benchmark scenarios that need them come online. Two
@@ -86,7 +94,7 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter, optional_module
+from openswmm_gymnasium._engine import SolverAdapter, element_kind, field_entry, optional_module
 
 # =============================================================================
 # Protocol
@@ -1327,3 +1335,68 @@ class WaterAgeSourceAge:
         source_ages = adapter.solver.water_age.globals
         for source, v in zip(self._sources, clipped, strict=True):
             source_ages[source] = float(v)  # hours; negative is legal (extracts age-volume)
+
+
+class FieldDesign:
+    """Design-time value of any writable scalar element field, by catalog path.
+
+    C{path} names a C{float}, C{int} or C{bool} property with access C{rw} on
+    an element kind, for example C{"subcatchment.width"} or
+    C{"node.invert_elev"} (see L{openswmm.engine.catalog}). Each component is
+    that field's value for one element, in C{[low, high]} and the field's own
+    units, written once before the simulation initializes. An C{int} field
+    takes the rounded value and a C{bool} field is true from 0.5.
+
+    @ivar name: Action-space key; defaults to the path.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        ids: Sequence[str],
+        low: float,
+        high: float,
+        name: str | None = None,
+    ) -> None:
+        """
+        @param path: Catalog path of a writable scalar element field.
+        @param ids: Element IDs the design dimension spans.
+        @param low: Lower bound of every component.
+        @param high: Upper bound of every component.
+        @param name: Action-space key; defaults to the path.
+        @raise ValueError: Unknown, non-scalar or read-only path, no ids, or
+            C{high <= low}.
+        """
+        entry = field_entry(path)
+        if entry.get("access") != "rw":
+            raise ValueError(f"FieldDesign: {path!r} is read-only")
+        if not ids:
+            raise ValueError("FieldDesign requires at least one id")
+        self._path, self._type = path, entry["type"]
+        self.requires: tuple[str, ...] = (path,)
+        self._kind = element_kind(path)
+        self._ids = list(ids)
+        self._low, self._high = float(low), float(high)
+        self.name = name or path
+        self._idxs: list[int] | None = None
+        self._box = _make_box(self._low, self._high, len(self._ids))
+
+    @property
+    def space(self) -> spaces.Box:
+        return self._box
+
+    def bind(self, adapter: SolverAdapter) -> None:
+        self._idxs = [adapter.index(self._kind, i) for i in self._ids]
+
+    def apply(self, adapter: SolverAdapter, value: np.ndarray) -> None:
+        if self._idxs is None:
+            raise RuntimeError("FieldDesign.bind() must be called before apply()")
+        clipped = np.clip(np.asarray(value, dtype=np.float64), self._low, self._high)
+        for idx, v in zip(self._idxs, clipped, strict=True):
+            if self._type == "int":
+                written: float | int | bool = int(round(float(v)))
+            elif self._type == "bool":
+                written = bool(v >= 0.5)
+            else:
+                written = float(v)
+            adapter.write(self._path, idx, written)
