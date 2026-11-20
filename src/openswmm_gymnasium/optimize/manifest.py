@@ -81,7 +81,7 @@ def study_definition(
     @rtype: dict
     """
     low, high = flat_bounds(dims)
-    labels = [label for d in dims for label in d.labels]
+    components = [(d.key, label) for d in dims for label in d.labels]
     payload = env_config.model_dump(mode="json")
     payload.update(inp_path=package_inp, rpt_path=None, out_path=None)
     return {
@@ -90,8 +90,8 @@ def study_definition(
         "model_inputs": dict(sorted(inputs.items())),
         "env_config": payload,
         "dimensions": [
-            {"label": label, "low": float(lo), "high": float(hi)}
-            for label, lo, hi in zip(labels, low, high, strict=True)
+            {"key": key, "label": label, "low": float(lo), "high": float(hi)}
+            for (key, label), lo, hi in zip(components, low, high, strict=True)
         ],
         "objectives": [
             {"name": n, "direction": d} for n, d in objective_directions(env_config).items()

@@ -81,7 +81,7 @@ def test_a_local_study_writes_its_manifest_in_the_platform_contract():
     assert definition.env_config["rpt_path"] is None
     assert definition.optimization["candidates"] == opt.candidates
     assert "workers" not in definition.optimization
-    assert [d.label for d in definition.dimensions] == ["field_design:S1"]
+    assert [(d.key, d.label) for d in definition.dimensions] == [(WIDTH, "field_design:S1")]
     assert manifest.result["best"] == result["best"] and "execution" not in manifest.result
     assert manifest.runtime["executor"] == "local"
     assert manifest.runtime["execution"]["workers"] == 0
