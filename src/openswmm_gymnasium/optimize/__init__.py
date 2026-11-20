@@ -41,6 +41,7 @@ Needs the C{spec} extra (pydantic); Platypus algorithms need C{platypus}.
 @license: Apache-2.0
 """
 
+from openswmm_gymnasium.optimize.apply import apply_decisions
 from openswmm_gymnasium.optimize.evaluation import (
     Evaluation,
     Evaluator,
@@ -74,6 +75,7 @@ from openswmm_gymnasium.optimize.study import OptimizationConfig, assemble_resul
 __all__ = [
     "ALGORITHMS",
     "Alternatives",
+    "apply_decisions",
     "PLATYPUS_ALGORITHMS",
     "DesignDimension",
     "Evaluation",

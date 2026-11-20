@@ -33,6 +33,7 @@ pytest.importorskip("pydantic")
 from openswmm_gymnasium._engine import SolverAdapter  # noqa: E402
 from openswmm_gymnasium.optimize import (  # noqa: E402
     OptimizationConfig,
+    apply_decisions,
     baseline_decisions,
     evaluate_decisions,
     make_optimizer,
@@ -159,3 +160,28 @@ def test_a_design_kind_with_no_single_field_has_no_baseline():
     )
     with pytest.raises(SpecError, match="link_diameter.*no single field"):
         baseline_decisions(config)
+
+
+def test_a_written_design_scores_what_its_evaluation_scored():
+    """A model written after apply_decisions is the design: its own values are the decisions,
+    and as a baseline it scores what the evaluation of the decisions scored."""
+    folder = _out("written")
+    config = _config(folder)
+    decisions = {WIDTH: [300.0, 2500.0]}
+    adapter = SolverAdapter(folder / "model.inp", folder / "w.rpt", folder / "w.out")
+    adapter.open()
+    try:
+        applied = apply_decisions(config, decisions, adapter)
+        adapter.solver.write(str(folder / "derived.inp"))
+    finally:
+        adapter.close()
+    assert [(a["element_id"], a["value"]) for a in applied] == [("S1", 300.0), ("S2", 2500.0)]
+    derived = config.model_copy(update={"inp_path": str(folder / "derived.inp")})
+    assert baseline_decisions(derived) == decisions
+    assert (
+        evaluate_decisions(derived, decisions)["objectives"]
+        == (evaluate_decisions(config, decisions)["objectives"])
+    )
+    policy = config.model_copy(update={"env_type": "market"})
+    with pytest.raises(SpecError, match="tunes a policy"):
+        apply_decisions(policy, decisions, None)

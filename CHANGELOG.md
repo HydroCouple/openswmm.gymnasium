@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model's own values for the kinds that set one field (`field_design`,
   `link_roughness`, `link_length`, `node_max_depth`). `join_decisions` is the
   inverse of `split_vector`.
+- **`apply_decisions(env_config, decisions, adapter)`** writes an evaluated design
+  onto an opened model through the config's own design factories, with the values the
+  evaluation used, so a model written afterwards is the design that was scored.
 - **Study manifest.** With hydrocouple.platform installed, `run_study` packages
   the model under `<output>/package` and writes `study-manifest.json` in the
   platform's `study-manifest-1` contract: the definition (model by its packaged
