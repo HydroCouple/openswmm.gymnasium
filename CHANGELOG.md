@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The package version is now `0.1.0.dev1`: hydrocouple.platform and openswmm.mcp need
-the study manifest, `apply_decisions` and `evaluate_decisions` below.
+The package version is now `0.1.0.dev2`: openswmm.mcp needs the behavioural sets,
+prediction bands and `decision_values` below. (`0.1.0.dev1` brought the study manifest,
+`apply_decisions` and `evaluate_decisions` that hydrocouple.platform and openswmm.mcp
+need.)
 
 ### Added — experiments (ecosystem Phase 3)
 
@@ -21,6 +23,30 @@ the study manifest, `apply_decisions` and `evaluate_decisions` below.
   openswmm.mcp's `compare` uses; the `fit_to_observed` reward term scores a run against an
   observed series as it runs (NSE and KGE maximized; RMSE, |bias|, peak and volume error
   minimized), with observations relative to the model's folder. `SolverAdapter.inp_path`.
+- **Metrics per evaluation.** `EnvConfig.objectives` names the reward terms a study
+  optimizes (every term when unset); every term's own value, objective or not, is
+  recorded as `metrics` in `evaluations.jsonl` and by `evaluate_decisions`, sorted by name.
+- **Event sets.** `EnvConfig.events` (rain CSV in the model's folder, gage, window, weight,
+  return period) and `event_aggregation` (`sum`, `mean`, `max`, `weighted_mean`): a
+  candidate runs once per storm, each with its window set and its gage pointed at the
+  storm's series before `initialize` (`events.RainEvent`), so each run is that of the
+  model edited to hold the storm; per-event values are `<term>@<event>` metrics.
+  `build_env(config, event=...)`; `optimize.manifest.sidecar_files` lists the files a
+  revision must carry, and local packaging includes them.
+- **Discrete dimensions.** The `field_choice` design factory sets a writable float, int or
+  bool field to one of listed values; its action is the choice's index, so optimizers
+  draw indices. Dimensions carry their `choices`; `decision_values` gives the values a
+  vector chooses, which records hold and `join_decisions` reads back.
+- **Uncertainty** (`optimize.uncertainty`): `OptimizationConfig.acceptance` declares an
+  `AcceptanceRule` (thresholds on metrics, then the best fraction) that travels in the
+  study manifest; `behavioural_set` applies it; `prediction_bands` runs each member and
+  writes unweighted quantiles of simulated series at the report times. `manifest.rerun`
+  runs a study again from its manifest.
+
+### Fixed — experiments (ecosystem Phase 3)
+
+- A local study manifest names its package relative to the manifest (`runtime.package`),
+  not by an absolute local path.
 
 ### Added — scenarios and alternatives (ecosystem Phase 2)
 

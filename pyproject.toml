@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openswmm.gymnasium"
-version = "0.1.0.dev1"
+version = "0.1.0.dev2"
 description = "Farama Gymnasium environments for SWMM CIP + RTC reinforcement learning"
 readme = "README.md"
 license = "Apache-2.0"

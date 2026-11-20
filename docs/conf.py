@@ -14,7 +14,7 @@ project = "OpenSWMM Gymnasium"
 copyright = "2026, Caleb Buahin"  # noqa: A001
 author = "Caleb Buahin"
 version = "0.1.0"
-release = "0.1.0.dev1"
+release = "0.1.0.dev2"
 
 extensions = [
     "sphinx.ext.autodoc",
