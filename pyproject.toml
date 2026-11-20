@@ -55,6 +55,7 @@ dependencies = [
 [project.optional-dependencies]
 mo       = ["mo-gymnasium>=1.0"]            # multi-objective extension
 platypus = ["platypus-opt>=1.2"]            # sole supported MOO adapter
+sampling = ["scipy>=1.15"]                  # Latin hypercube and Sobol designs (stats.qmc)
 viz      = ["plotly>=5.18"]                 # sole supported plot backend
 spec     = ["pydantic>=2"]                  # openswmm_gymnasium.spec (JSON env configs)
 dev = [

@@ -25,6 +25,8 @@ process entirely.
 
   - L{RandomSearch} -- uniform sampling baseline.
   - L{GridSearch} -- full factorial over per-dimension levels, truncated at the budget.
+  - L{LatinHypercube} and L{Sobol} -- space-filling designs (scipy's C{stats.qmc},
+    seeded and scrambled), drawn once and asked in batches. Need the C{sampling} extra.
   - L{Alternatives} -- the candidates the caller gives, each once, in order:
     an alternatives analysis, or a baseline.
   - L{PlatypusOptimizer} -- any Platypus MOEA (C{nsga2}, C{nsga3}, C{spea2},
@@ -58,7 +60,17 @@ PLATYPUS_ALGORITHMS = {
 }
 
 #: Every algorithm name L{make_optimizer} accepts.
-ALGORITHMS = ("random_search", "grid_search", "alternatives", *PLATYPUS_ALGORITHMS)
+#: Space-filling designs from scipy's C{stats.qmc} (the C{sampling} extra).
+SAMPLING_ALGORITHMS = ("lhs", "sobol")
+
+#: Every algorithm name L{make_optimizer} accepts.
+ALGORITHMS = (
+    "random_search",
+    "grid_search",
+    *SAMPLING_ALGORITHMS,
+    "alternatives",
+    *PLATYPUS_ALGORITHMS,
+)
 
 
 class Optimizer(Protocol):
@@ -235,6 +247,69 @@ class PlatypusOptimizer:
             self._thread.join(timeout=10)
 
 
+class _Design:
+    """A fixed design of points in the unit cube, scaled to the box and asked in batches."""
+
+    def __init__(self, unit: np.ndarray, low: np.ndarray, high: np.ndarray, batch: int) -> None:
+        low, high = np.asarray(low, dtype=float), np.asarray(high, dtype=float)
+        self._points = [low + row * (high - low) for row in np.asarray(unit, dtype=float)]
+        self._batch = max(1, batch)
+
+    def ask(self) -> list[np.ndarray]:
+        out, self._points = self._points[: self._batch], self._points[self._batch :]
+        return out
+
+    def tell(self, vectors, costs) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def _qmc():
+    try:
+        from scipy.stats import qmc
+    except ImportError:
+        raise SpecError(
+            f"[{ErrorCode.DEPENDENCY_MISSING}] Latin hypercube and Sobol designs need scipy: "
+            "pip install 'openswmm.gymnasium[sampling]'."
+        ) from None
+    return qmc
+
+
+class LatinHypercube(_Design):
+    """C{budget} points of a scrambled Latin hypercube: each component's range is cut into
+    C{budget} strata and every stratum is sampled once."""
+
+    def __init__(
+        self,
+        low: np.ndarray,
+        high: np.ndarray,
+        budget: int,
+        seed: int | None = None,
+        batch: int = 1,
+    ) -> None:
+        sampler = _qmc().LatinHypercube(d=len(low), rng=np.random.default_rng(seed))
+        super().__init__(sampler.random(budget), low, high, batch)
+
+
+class Sobol(_Design):
+    """The first C{budget} points of a scrambled Sobol' sequence (its balance is exact when
+    C{budget} is a power of two)."""
+
+    def __init__(
+        self,
+        low: np.ndarray,
+        high: np.ndarray,
+        budget: int,
+        seed: int | None = None,
+        batch: int = 1,
+    ) -> None:
+        sampler = _qmc().Sobol(d=len(low), scramble=True, rng=np.random.default_rng(seed))
+        unit = sampler.random_base2(max(0, int(np.ceil(np.log2(budget)))))
+        super().__init__(unit[:budget], low, high, batch)
+
+
 class Alternatives:
     """The given candidates, each once and in order, in batches of C{batch}.
 
@@ -292,8 +367,8 @@ def make_optimizer(
 ) -> Optimizer:
     """The optimiser for an algorithm name (see L{ALGORITHMS}).
 
-    @param batch: Candidates per C{ask()} for random and grid search and for
-        alternatives (the Platypus batch is its generation).
+    @param batch: Candidates per C{ask()} for random and grid search, the sampling
+        designs and alternatives (the Platypus batch is its generation).
     @param candidates: The decision vectors an C{"alternatives"} search evaluates.
     @raise SpecError: C{VALIDATION_ERROR} for an unknown algorithm,
         C{DEPENDENCY_MISSING} when platypus-opt is needed but absent.
@@ -302,6 +377,10 @@ def make_optimizer(
         return RandomSearch(low, high, budget, seed, batch)
     if algorithm == "grid_search":
         return GridSearch(low, high, budget, grid_levels, batch)
+    if algorithm == "lhs":
+        return LatinHypercube(low, high, budget, seed, batch)
+    if algorithm == "sobol":
+        return Sobol(low, high, budget, seed, batch)
     if algorithm == "alternatives":
         return Alternatives(candidates or [], low, high, batch)
     if algorithm in PLATYPUS_ALGORITHMS:

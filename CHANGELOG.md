@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The package version is now `0.1.0.dev1`: hydrocouple.platform and openswmm.mcp need
 the study manifest, `apply_decisions` and `evaluate_decisions` below.
 
+### Added — experiments (ecosystem Phase 3)
+
+- **Latin hypercube and Sobol designs** (`algorithm="lhs"` or `"sobol"`, the new
+  `sampling` extra: scipy's `stats.qmc`, seeded and scrambled). The design is drawn once
+  and asked in batches, so one seed gives one design serially, on workers and on the
+  platform.
+
 ### Added — scenarios and alternatives (ecosystem Phase 2)
 
 - **`field_design`** (`FieldDesign`): a design factory over any writable
