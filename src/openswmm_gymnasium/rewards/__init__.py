@@ -35,6 +35,7 @@ imports beyond this module.
 @license: Apache-2.0
 """
 
+from openswmm_gymnasium.rewards.fit import FitToObserved
 from openswmm_gymnasium.rewards.registry import RewardRegistry
 from openswmm_gymnasium.rewards.terms import (
     CSOVolume,
@@ -64,6 +65,7 @@ RewardRegistry.register("storage_underutilization", StorageUnderUtilization)
 RewardRegistry.register("pump_energy", PumpEnergy)
 RewardRegistry.register("tss_load", TSSLoad)
 RewardRegistry.register("surcharge_slot_share", SurchargeSlotShare)
+RewardRegistry.register("fit_to_observed", FitToObserved)
 
 
 __all__ = [
@@ -78,5 +80,6 @@ __all__ = [
     "StorageUnderUtilization",
     "PumpEnergy",
     "TSSLoad",
+    "FitToObserved",
     "SurchargeSlotShare",
 ]

@@ -392,6 +392,14 @@ class SolverAdapter:
         return self._solver.state == EngineState.RUNNING
 
     @property
+    def inp_path(self) -> str:
+        """The model file this adapter opens.
+
+        @rtype: str
+        """
+        return self._inp
+
+    @property
     def elapsed(self) -> float:
         """Elapsed simulation time in days.
 

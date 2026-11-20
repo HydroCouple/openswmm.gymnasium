@@ -28,6 +28,7 @@ EXPECTED_KINDS = {
         "pump_energy",
         "tss_load",
         "surcharge_slot_share",
+        "fit_to_observed",
     },
     "runtime_factory": {
         "orifice_setting",

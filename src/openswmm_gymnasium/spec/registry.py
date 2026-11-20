@@ -187,6 +187,26 @@ class SurchargeSlotShareParams(_Params):
     name: str = "surcharge_slot_share"
 
 
+class FitToObservedParams(_Params):
+    """Params for the C{fit_to_observed} reward term (a calibration objective).
+
+    @ivar path: Catalog field simulated, e.g. C{"link.flow"} or C{"node.depth"}.
+    @ivar element_id: The element observed.
+    @ivar observed: Wide observations CSV; relative to the model's folder.
+    @ivar metric: C{nse}, C{kge} (maximized), C{rmse}, C{abs_bias}, C{peak_error} or
+        C{volume_error} (minimized).
+    @ivar column: CSV column of the observations; defaults to the element id.
+    @ivar name: Term identifier; defaults to C{<metric>_<element_id>}.
+    """
+
+    path: str
+    element_id: str
+    observed: str
+    metric: Literal["nse", "kge", "rmse", "abs_bias", "peak_error", "volume_error"] = "nse"
+    column: str | None = None
+    name: str | None = None
+
+
 # -- runtime action factories ----------------------------------------------
 
 
@@ -842,6 +862,14 @@ for _spec in [
         "openswmm_gymnasium.spaces.runtime:NodeLateralInflow",
         NodeLateralInflowParams,
         "Per-step controllable lateral inflow [0,max_inflow] at nodes.",
+    ),
+    KindSpec(
+        "fit_to_observed",
+        "reward_term",
+        "openswmm_gymnasium.rewards:FitToObserved",
+        FitToObservedParams,
+        "How well a run reproduces an observed series (NSE, KGE, RMSE, |bias|, peak or volume "
+        "error) at one element: a calibration objective.",
     ),
     KindSpec(
         "field_setpoint",

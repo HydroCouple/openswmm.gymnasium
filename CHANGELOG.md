@@ -16,6 +16,11 @@ the study manifest, `apply_decisions` and `evaluate_decisions` below.
   `sampling` extra: scipy's `stats.qmc`, seeded and scrambled). The design is drawn once
   and asked in batches, so one seed gives one design serially, on workers and on the
   platform.
+- **Fit metrics and calibration** (`rewards.fit`): `fit_metrics` (peak, volume, RMSE,
+  NSE, bias and the Kling-Gupta efficiency) and `read_observed_csv`, the implementation
+  openswmm.mcp's `compare` uses; the `fit_to_observed` reward term scores a run against an
+  observed series as it runs (NSE and KGE maximized; RMSE, |bias|, peak and volume error
+  minimized), with observations relative to the model's folder. `SolverAdapter.inp_path`.
 
 ### Added — scenarios and alternatives (ecosystem Phase 2)
 
