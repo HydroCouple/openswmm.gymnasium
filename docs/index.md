@@ -1,5 +1,7 @@
+% Skip the README's first line, its logo: the hero and top bar carry the brand here.
 ```{include} ../README.md
 :relative-images:
+:start-line: 1
 ```
 
 ```{toctree}

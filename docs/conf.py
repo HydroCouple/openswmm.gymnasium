@@ -22,7 +22,6 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "myst_parser",
-    "sphinxcontrib.mermaid",  # ```mermaid``` architecture/workflow diagrams
     "sphinx_epytext",  # epytext docstring rendering
 ]
 
@@ -45,7 +44,6 @@ source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
-    "github_url": "https://github.com/HydroCouple/openswmm.gymnasium",
     "show_toc_level": 2,
     "navigation_depth": 3,
     "use_edit_page_button": False,
@@ -55,7 +53,6 @@ html_title = f"{project} {release}"
 
 # Project icon — used as the sidebar logo and the browser favicon.
 html_static_path = ["_static"]
-html_css_files = ['hydrocouple-palette.css']
 html_logo = "_static/hydrocouplecomposer.png"
 html_favicon = "_static/hydrocouplecomposer.png"
 
@@ -88,7 +85,7 @@ myst_enable_extensions = ["colon_fence", "deflist", "tasklist"]
 myst_heading_anchors = 3
 
 # Render ```mermaid fenced code blocks (the GitHub/PyPI-native syntax) through
-# the sphinxcontrib-mermaid directive, so the README's diagrams render the same
+# the HydroCouple theme's mermaid directive, so the README's diagrams render the same
 # everywhere without a Sphinx-only ``.. mermaid::`` variant.
 myst_fence_as_directive = ["mermaid"]
 
@@ -133,3 +130,28 @@ suppress_warnings = [
 nitpicky = False
 
 # Intersphinx is configured above; offline mode swap handled there.
+
+# ---------------------------------------------------------------------------
+# HydroCouple documentation theme
+# ---------------------------------------------------------------------------
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_hydrocouple"))
+import hydrocouple_theme  # noqa: E402
+
+hydrocouple_theme.configure(
+    globals(),
+    manual_id="openswmm.gymnasium",
+    project_label="OpenSWMM Gymnasium",
+    repository="https://github.com/HydroCouple/openswmm.gymnasium",
+    hero={
+        "kicker": "OpenSWMM Gymnasium",
+        "title": "Gymnasium environments for storm water networks",
+        "lede": "Each environment runs a real SWMM simulation on the OpenSWMM engine for capital "
+                "improvement design, real-time control or both, with multi-objective scoring built in.",
+        "actions": [
+            {"label": "Get started", "url": "getting-started/quickstart", "style": "solid"},
+            {"label": "API reference", "url": "api/index", "style": "ghost"},
+            {"label": "Engine Python manual", "url": "https://www.hydrocouple.org/openswmm.engine/python/", "style": "ghost"},
+        ],
+    },
+)
