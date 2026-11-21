@@ -50,7 +50,7 @@ Ships ten first-class terms:
   - L{PumpEnergy} — pump effort (control setting × rated power × dt)
     summed across pumps. (Objective #4.)
   - L{SurchargeSlotShare} — run-level Preissmann-slot storage share as a
-    pressurisation proxy. B{Finite-volume routing only.}
+    pressurization proxy. B{Finite-volume routing only.}
 
 The remaining plan §5.1 terms (C{CapitalCost}, C{OandMCost}) land in
 subsequent phases.
@@ -256,7 +256,7 @@ class PeakOutflow:
     boundaries means a peak that occurs *between* two env steps is still
     caught.
 
-    Plan §5.1 framing: minimise peak outflow.
+    Plan §5.1 framing: minimize peak outflow.
 
     @ivar name: C{"peak_outflow"} by default.
     @ivar direction: Always C{"minimize"}.
@@ -395,7 +395,7 @@ class TSSLoad:
 
 
 # =============================================================================
-# Reliability margin (maximise)
+# Reliability margin (maximize)
 # =============================================================================
 
 
@@ -455,7 +455,7 @@ class ReliabilityMargin:
 
 
 # =============================================================================
-# Setpoint smoothness (minimise action churn)
+# Setpoint smoothness (minimize action churn)
 # =============================================================================
 
 
@@ -482,7 +482,7 @@ class SetpointSmoothness:
         name: str = "setpoint_smoothness",
     ) -> None:
         """
-        @param link_ids: Links whose setting trajectories to penalise.
+        @param link_ids: Links whose setting trajectories to penalize.
         @type link_ids: sequence of str (required)
         @param name: Term identifier.
         @type name: str
@@ -532,7 +532,7 @@ class UncontrolledDischarge:
     caller resolves which links feed untreated outfalls (from the model tags /
     the market config C{treatment_tag}), mirroring L{CSOVolume}.
 
-    Operational objective #2 (minimise uncontrolled discharge).
+    Operational objective #2 (minimize uncontrolled discharge).
 
     @ivar name: C{"uncontrolled_discharge"} by default.
     @ivar direction: Always C{"minimize"}.
@@ -585,11 +585,11 @@ class StorageUnderUtilization:
     Each step contributes C{sum_i max(0, 1 - depth_i / max_depth_i) * dt},
     i.e. the fraction of each storage node left empty, integrated over time.
     It is high when storage sits idle and falls to zero as nodes fill, so
-    minimising it rewards using available storage. Depth fill
+    minimizing it rewards using available storage. Depth fill
     (C{depth / max_depth}) is used as a volume proxy, exact for a prismatic
     (linear) storage curve and a close approximation otherwise.
 
-    Operational objective #3 (minimise storage under-utilisation).
+    Operational objective #3 (minimize storage under-utilization).
 
     NOTE: integrated over the whole episode this also charges idle storage in
     dry weather; weight it accordingly in the objective vector (the example
@@ -655,7 +655,7 @@ class PumpEnergy:
     C{rated_power} in consistent power units to obtain energy. A flow×head
     variant can replace this once link end-node heads are exposed.
 
-    Operational objective #4 (minimise pumping energy).
+    Operational objective #4 (minimize pumping energy).
 
     @ivar name: C{"pump_energy"} by default.
     @ivar direction: Always C{"minimize"}.
@@ -708,12 +708,12 @@ class PumpEnergy:
 
 
 # =============================================================================
-# Pressurisation (Preissmann slot)
+# Pressurization (Preissmann slot)
 # =============================================================================
 
 
 #: The one C{[OPTIONS] FLOW_ROUTING} value under which the Preissmann-slot
-#: statistics carry information. The engine canonicalises the option to
+#: statistics carry information. The engine canonicalizes the option to
 #: exactly one of C{STEADY} / C{KINWAVE} / C{DYNWAVE} / C{FV} on read, and
 #: only C{FV} — the finite-volume router — models a slot at all; the other
 #: three all report a hard 0.0. The guard is written as "require FV" rather
@@ -728,7 +728,7 @@ _ROUTING_OPTION_KEYS = ("FLOW_ROUTING", "ROUTING_MODEL")
 
 
 class SurchargeSlotShare:
-    """Preissmann-slot storage share across links — a pressurisation proxy.
+    """Preissmann-slot storage share across links — a pressurization proxy.
 
     B{FINITE-VOLUME ROUTING ONLY (C{FLOW_ROUTING FV}). READS A HARD 0.0
     UNDER EVERY OTHER ROUTER, DYNAMIC WAVE INCLUDED.} That constraint is
@@ -775,7 +775,7 @@ class SurchargeSlotShare:
     slot. Under C{DYNWAVE} — and equally under C{STEADY} and C{KINWAVE} —
     the engine has no slot to report and C{slot_share} returns 0.0, a
     value byte-for-byte indistinguishable from "the FV router ran and
-    found no pressurisation anywhere". A term reading it on such a model
+    found no pressurization anywhere". A term reading it on such a model
     would report a perfect network on every step of every episode and hand
     the agent a flat, unmovable signal, with nothing raised and nothing
     logged. That is exactly the class of silent failure a reward must
@@ -783,7 +783,7 @@ class SurchargeSlotShare:
     on any non-FV router rather than warning. If the engine will not
     report the option (an older build, or a mapping that lacks the key),
     detection is skipped and the term proceeds — in that case the
-    constraint is yours to honour.
+    constraint is yours to honor.
 
     @ivar name: C{"surcharge_slot_share"} by default.
     @ivar direction: Always C{"minimize"}.
@@ -800,8 +800,8 @@ class SurchargeSlotShare:
         name: str = "surcharge_slot_share",
     ) -> None:
         """
-        @param link_ids: Closed-conduit link IDs whose pressurisation to
-            penalise. Required and non-empty: run over every link in the
+        @param link_ids: Closed-conduit link IDs whose pressurization to
+            penalize. Required and non-empty: run over every link in the
             model and the mean is diluted by open channels and pumps,
             which have no slot and contribute a structural zero.
         @type link_ids: sequence of str
@@ -844,9 +844,9 @@ class SurchargeSlotShare:
                 f"{routing}: the Preissmann slot is a finite-volume construct, "
                 f"so every slot statistic reads a hard 0.0 under any router "
                 f"other than {_FV_ROUTING_TOKEN}. The term would report zero "
-                "pressurisation on every step of every episode and give the "
+                "pressurization on every step of every episode and give the "
                 "agent no signal to act on. Set FLOW_ROUTING FV in the model, "
-                "or use a pressurisation proxy that works under this router "
+                "or use a pressurization proxy that works under this router "
                 "(e.g. link surcharge time, or node depth against crown "
                 "elevation)."
             )

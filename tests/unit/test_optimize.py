@@ -16,7 +16,7 @@
 
 """Tests for L{openswmm_gymnasium.optimize}.
 
-Optimiser tests are pure. Study tests drive the real engine (no mocks) on
+Optimizer tests are pure. Study tests drive the real engine (no mocks) on
 the committed fixtures, and write their artifacts under the reviewable
 C{tests/_output/optimize/} tree (CLAUDE.md §4.1).
 """
@@ -87,7 +87,7 @@ def _copy_inp(dest: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Ask/tell optimisers (pure)
+# Ask/tell optimizers (pure)
 # ---------------------------------------------------------------------------
 
 

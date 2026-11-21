@@ -52,7 +52,7 @@ def price_from_curve(metric: float, curve: CostCurve) -> float:
 
     Both curve shapes are monotonic non-decreasing in the metric, so a
     more-stressed agent never prices below a less-stressed one. The logistic
-    shape is centred on C{onset} (price = midpoint of [floor, ceiling] there).
+    shape is centered on C{onset} (price = midpoint of [floor, ceiling] there).
 
     @param metric: Stress metric, clamped into [0,1].
     @param curve: The curve parameters.

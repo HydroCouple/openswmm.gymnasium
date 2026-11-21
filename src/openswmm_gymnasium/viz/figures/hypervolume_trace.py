@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Normalised single-point hypervolume per episode.
+Normalized single-point hypervolume per episode.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -40,14 +40,14 @@ def hypervolume_trace(
     reference: Sequence[float],
     title: str = "Normalized hypervolume",
 ) -> go.Figure:
-    """Per-episode single-point normalised HV, in C{[0, 1]}.
+    """Per-episode single-point normalized HV, in C{[0, 1]}.
 
     Each episode contributes one point — its cumulative cost vector —
-    against the supplied C{ideal} and C{reference} for normalisation.
+    against the supplied C{ideal} and C{reference} for normalization.
 
     @param run: Multi-episode run.
     @type run: L{TrajectoryRun}
-    @param ideal: Per-objective best-case cost (minimisation).
+    @param ideal: Per-objective best-case cost (minimization).
     @type ideal: sequence of float
     @param reference: Per-objective nadir cost.
     @type reference: sequence of float
@@ -84,7 +84,7 @@ def hypervolume_trace(
     fig.update_layout(
         title=title,
         xaxis_title="episode",
-        yaxis_title="normalised HV",
+        yaxis_title="normalized HV",
         yaxis_range=[0.0, 1.0],
     )
     return fig

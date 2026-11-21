@@ -16,7 +16,7 @@
 
 """Unit tests for L{openswmm_gymnasium.spaces.design} factories.
 
-Engine-touching behaviour (the actual setter calls) is exercised by
+Engine-touching behavior (the actual setter calls) is exercised by
 the CIP env integration tests; here we focus on space construction,
 validation, and bind-before-apply enforcement.
 

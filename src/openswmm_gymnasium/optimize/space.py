@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Search space of an optimisable env config.
+Search space of an optimizable env config.
 
 The decision vector of a study is the concatenation of every design
 factory's flattened action (C{cip}/C{joint} envs) or of every tunable
@@ -107,7 +107,7 @@ def _schedule_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
 
 
 def _control_curve_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
-    """One dimension per control-curve knot setting, labelled C{control_curve/<link>/y[<k>]}."""
+    """One dimension per control-curve knot setting, labeled C{control_curve/<link>/y[<k>]}."""
     from openswmm_gymnasium.spaces import ControlCurvePolicySpace
 
     space = ControlCurvePolicySpace.from_params(env_config.policy_factory.params)
@@ -119,7 +119,7 @@ def _control_curve_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
 
 
 def design_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
-    """Labelled search-space dimensions of an env config, in config order.
+    """Labeled search-space dimensions of an env config, in config order.
 
     For C{"market"}/C{"schedule"}/C{"control_curve"} configs the dimensions
     come from the controller policy space; otherwise from the design factories.

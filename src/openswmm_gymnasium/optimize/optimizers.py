@@ -15,10 +15,10 @@
 # limitations under the License.
 
 """
-Ask/tell optimisers over a box-bounded decision vector.
+Ask/tell optimizers over a box-bounded decision vector.
 
-Every optimiser proposes batches with C{ask()} and receives their costs
-(every objective minimised) with C{tell()}. C{ask()} returns an empty list
+Every optimizer proposes batches with C{ask()} and receives their costs
+(every objective minimized) with C{tell()}. C{ask()} returns an empty list
 when the search is finished. The caller decides how a batch is evaluated,
 which is what lets a population run in parallel, or come from another
 process entirely.
@@ -74,13 +74,13 @@ ALGORITHMS = (
 
 
 class Optimizer(Protocol):
-    """Ask/tell protocol shared by every optimiser."""
+    """Ask/tell protocol shared by every optimizer."""
 
     def ask(self) -> list[np.ndarray]:
         """The next batch of candidates; empty when the search is finished."""
 
     def tell(self, vectors: Sequence[np.ndarray], costs: Sequence[Sequence[float]]) -> None:
-        """Costs (minimised) of the batch last returned by C{ask}, in the same order."""
+        """Costs (minimized) of the batch last returned by C{ask}, in the same order."""
 
     def close(self) -> None:
         """Release resources (stops a background search)."""
@@ -365,7 +365,7 @@ def make_optimizer(
     batch: int = 1,
     candidates: Sequence[np.ndarray] | None = None,
 ) -> Optimizer:
-    """The optimiser for an algorithm name (see L{ALGORITHMS}).
+    """The optimizer for an algorithm name (see L{ALGORITHMS}).
 
     @param batch: Candidates per C{ask()} for random and grid search, the sampling
         designs and alternatives (the Platypus batch is its generation).

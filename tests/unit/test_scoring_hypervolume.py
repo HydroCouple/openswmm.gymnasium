@@ -137,7 +137,7 @@ class TestNormalizedHypervolume(unittest.TestCase):
         self.assertLessEqual(nhv, 1.0)
 
     def test_at_ideal_full_volume(self):
-        """A single point at the ideal yields normalised HV = 1."""
+        """A single point at the ideal yields normalized HV = 1."""
         front = np.array([[0.0, 0.0]])
         ideal = np.array([0.0, 0.0])
         ref = np.array([1.0, 1.0])

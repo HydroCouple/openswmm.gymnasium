@@ -18,7 +18,7 @@
 
 Per plan §8.0 — no engine mocks: drives the real engine over the
 coupled 1D/2D ``tests/data/minimal_2d.inp`` fixture (two triangles,
-four vertices, centre-vertex coupling to J1).
+four vertices, center-vertex coupling to J1).
 
 Covers: ``ObservationBuilder.add_2d_vertex_depths`` (space size,
 bind-time validation, collect shape/dtype), ``add_cell_field`` (bulk and

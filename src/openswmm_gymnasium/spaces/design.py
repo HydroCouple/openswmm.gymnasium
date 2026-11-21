@@ -59,7 +59,7 @@ calibration / inverse-problem handles at least as much as CIP levers.
 
   - L{ReactionCoefficientValue} — C{[REACTION_COEFFICIENTS]} PARAMETER
     values. The highest-value of the three: it turns a multi-species
-    reaction model into a directly calibratable / optimisable surface.
+    reaction model into a directly calibratable / optimizable surface.
   - L{HeatSourceTemperature} — global inlet temperature per heat-source
     pathway (degC).
   - L{WaterAgeSourceAge} — global source age per water-age pathway (hours;
@@ -80,7 +80,7 @@ C{OrificeMaxOpening}, C{PumpCurveChoice}, C{ControlRuleSelection}) land in
 subsequent phases as benchmark scenarios that need them come online. Two
 further engine surfaces are reachable but deliberately B{not} wrapped yet:
 C{InitialQuality} (per-element initial temperature / age / species rows —
-an initial-condition randomiser rather than a design dimension, so it
+an initial-condition randomizer rather than a design dimension, so it
 belongs with hot-start seeding) and C{ProcessComponents} (registration of
 external process plugins by config path — a model-assembly concern with no
 continuous search space).
@@ -1015,15 +1015,15 @@ class ReactionCoefficientValue:
     L{openswmm.engine.Reactions} in the OPENED (pre-initialize) state.
 
     B{Why this one matters.} Reaction coefficients are exactly the quantities
-    a water-quality modeller normally fits by hand against observed
+    a water-quality modeler normally fits by hand against observed
     concentrations. Exposing them as a design space turns calibration into an
-    ordinary optimisation problem over the same env machinery that does CIP
+    ordinary optimization problem over the same env machinery that does CIP
     sizing: pair this factory with an observed-vs-simulated objective and the
     search B{is} a calibration run; pair it with a treatment-performance
     objective and it is a process-design run instead.
 
     B{PARAMETER vs CONSTANT.} The engine distinguishes the two
-    (C{is_param}). A CONSTANT is declared by the modeller as fixed, and
+    (C{is_param}). A CONSTANT is declared by the modeler as fixed, and
     writing one is meaningless-at-best; L{bind} B{refuses} any CONSTANT
     target with a L{ValueError} naming it, rather than writing values the
     model was never meant to vary. Pass only PARAMETER coefficients.
@@ -1262,7 +1262,7 @@ class WaterAgeSourceAge:
     B{Negative values are legal and meaningful, and are NOT clamped here.}
     A negative source age B{extracts} age-volume from the pathway (the
     engine clamps the resulting age at zero, not the input). That makes a
-    negative bound a real modelling choice — e.g. searching over how much a
+    negative bound a real modeling choice — e.g. searching over how much a
     fresh-water injection should reset the age of a stagnant branch — so
     this factory's default low bound is B{not} zero and callers must
     deliberately opt into a non-negative range if that is what they want.
@@ -1293,7 +1293,7 @@ class WaterAgeSourceAge:
         @type sources: sequence of str
         @param low: Lower bound in hours. B{May be negative} — see the class
             docstring; there is no default, because defaulting either way
-            would make a modelling decision on the caller's behalf.
+            would make a modeling decision on the caller's behalf.
         @type low: float
         @param high: Upper bound in hours.
         @type high: float

@@ -29,13 +29,13 @@ from numpy.typing import ArrayLike
 
 
 def spread(front: ArrayLike) -> float:
-    """Standard deviation of nearest-neighbour Euclidean distances.
+    """Standard deviation of nearest-neighbor Euclidean distances.
 
     For a front with fewer than two points, returns C{0.0}.
 
     @param front: 2-D array C{(n, d)}.
     @type front: array_like
-    @return: Stddev of per-point nearest-neighbour distances. Lower
+    @return: Stddev of per-point nearest-neighbor distances. Lower
         means more uniform spacing.
     @rtype: float
     """

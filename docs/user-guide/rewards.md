@@ -1,10 +1,10 @@
 # Rewards
 
-All built-in reward terms are framed as **cost-to-minimise** internally
+All built-in reward terms are framed as **cost-to-minimize** internally
 (positive contribution = bad outcome). The env negates the aggregated
 cost so higher reward is better, per Gymnasium convention.
 
-Maximise-direction terms (e.g.
+Maximize-direction terms (e.g.
 {py:class}`~openswmm_gymnasium.rewards.ReliabilityMargin`) declare
 `direction = "maximize"`; the env's composer handles sign-flipping
 automatically.
@@ -18,36 +18,36 @@ automatically.
   - Direction
   - Description
 * - {py:class}`~openswmm_gymnasium.rewards.FloodingVolume`
-  - minimise
+  - minimize
   - Flooded volume across nodes per step, in project volume units
 * - {py:class}`~openswmm_gymnasium.rewards.CSOVolume`
-  - minimise
+  - minimize
   - Same math, restricted to tagged CSO nodes
 * - {py:class}`~openswmm_gymnasium.rewards.PeakOutflow`
-  - minimise
+  - minimize
   - Running-max increment of link flow
 * - {py:class}`~openswmm_gymnasium.rewards.TSSLoad`
-  - minimise
+  - minimize
   - Pollutant mass flux (flow × concentration × dt) through links. Despite the
     name it works for any declared pollutant — pass `pollutant=...`
 * - {py:class}`~openswmm_gymnasium.rewards.ReliabilityMargin`
-  - maximise
+  - maximize
   - Minimum freeboard across nodes
 * - {py:class}`~openswmm_gymnasium.rewards.SetpointSmoothness`
-  - minimise
+  - minimize
   - L2-norm-squared of Δsetting between steps
 * - {py:class}`~openswmm_gymnasium.rewards.UncontrolledDischarge`
-  - minimise
+  - minimize
   - Positive flow × dt through links feeding untreated outfalls
 * - {py:class}`~openswmm_gymnasium.rewards.StorageUnderUtilization`
-  - minimise
+  - minimize
   - Time-integrated unused storage headroom (`1 − depth/max_depth`)
 * - {py:class}`~openswmm_gymnasium.rewards.PumpEnergy`
-  - minimise
+  - minimize
   - Pump effort `setting × rated_power × dt` summed across pumps
 * - {py:class}`~openswmm_gymnasium.rewards.SurchargeSlotShare`
-  - minimise
-  - Run-level Preissmann-slot storage share as a pressurisation proxy.
+  - minimize
+  - Run-level Preissmann-slot storage share as a pressurization proxy.
     **Dimensionless, in `[0, 1]`** — a ratio of volumes, so it is the one
     term with no unit-system dependence at all. **Finite-volume routing
     only**; see below.
@@ -58,7 +58,7 @@ automatically.
 The Preissmann slot is a finite-volume construct: the notional narrow slot
 above a closed conduit's crown that lets a free-surface scheme carry
 pressurized flow. The fraction of a conduit's stored volume held in that slot
-is a direct, continuous measure of pressurisation — unlike `surcharge_time`,
+is a direct, continuous measure of pressurization — unlike `surcharge_time`,
 which is a binary threshold crossing integrated over time, and unlike
 `max_filling`, which saturates at 1.0 and then carries no further information
 however hard the pipe is pressurized.
@@ -70,7 +70,7 @@ it on such a model would report perfection on every step of every episode and
 hand the agent a flat, unmovable signal, with nothing raised and nothing
 logged. `bind` therefore reads `[OPTIONS] FLOW_ROUTING` and **raises** on any
 non-FV router rather than warning. If the engine will not report the option
-(an older build), detection is skipped and the constraint is yours to honour.
+(an older build), detection is skipped and the constraint is yours to honor.
 
 The per-step contribution is the increase in a running maximum of the
 links' **mean** slot share, so cumulative reward over the episode equals the

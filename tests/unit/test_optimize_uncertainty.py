@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Behavioural sets, prediction bands, and studies run again from their manifests.
+"""Behavioral sets, prediction bands, and studies run again from their manifests.
 
 The engine tests run C{tests/data/site_drainage_example.inp}; files land in
 C{tests/_output/optimize_uncertainty/}.

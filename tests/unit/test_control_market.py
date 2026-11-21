@@ -62,7 +62,7 @@ class TestCostCurves(unittest.TestCase):
         c = CostCurve(type="logistic", onset=0.85, steepness=20)
         vals = [price_from_curve(m, c) for m in _GRID]
         self.assertTrue(all(b >= a for a, b in zip(vals, vals[1:], strict=False)))
-        # Logistic is centred on onset: price == midpoint of [floor, ceiling].
+        # Logistic is centered on onset: price == midpoint of [floor, ceiling].
         self.assertAlmostEqual(price_from_curve(0.85, c), 0.5, places=6)
 
     def test_floor_ceiling_respected_and_clamped_metric(self):

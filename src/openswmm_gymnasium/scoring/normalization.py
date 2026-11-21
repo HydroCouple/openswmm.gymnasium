@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Min-max normalisation against L{ideal} and L{reference} (nadir) points.
+Min-max normalization against L{ideal} and L{reference} (nadir) points.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -38,7 +38,7 @@ def normalize(
     @param points: Array of shape C{(d,)} or C{(n, d)}.
     @type points: array_like
     @param ideal: 1-D array of length C{d} giving the per-dimension
-        best-possible value (lower in minimisation).
+        best-possible value (lower in minimization).
     @type ideal: array_like
     @param reference: 1-D array of length C{d} giving the per-dimension
         worst-case (nadir) value used as the hypervolume reference.

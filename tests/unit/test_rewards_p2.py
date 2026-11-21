@@ -103,7 +103,7 @@ class TestProtocolConformance(unittest.TestCase):
 
 
 # -----------------------------------------------------------------------------
-# Stateful behaviour: PeakOutflow and SetpointSmoothness need engine state
+# Stateful behavior: PeakOutflow and SetpointSmoothness need engine state
 # we don't have in-sandbox. Verify the *logic* against scripted stubs.
 # -----------------------------------------------------------------------------
 

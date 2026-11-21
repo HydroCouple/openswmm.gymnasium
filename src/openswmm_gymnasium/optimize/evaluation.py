@@ -69,7 +69,7 @@ class Evaluation:
     """Outcome of one candidate.
 
     @ivar costs: Direction-adjusted cost per objective (every objective is
-        minimised: a C{maximize} term is negated); C{None} when it failed.
+        minimized: a C{maximize} term is negated); C{None} when it failed.
     @ivar steps: Env steps the episode took (summed over events).
     @ivar error: Failure description, or C{None}.
     @ivar metrics: Every reward term's value as the term reports it (not direction

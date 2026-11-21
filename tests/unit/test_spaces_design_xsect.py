@@ -22,9 +22,9 @@ used C{geom1} as the full depth, which is only the rise for shapes whose
 first geometry parameter happens to be the height. Both now go through the
 engine's analytic cross-section geometry.
 
-Decode behaviour is exercised against a fake adapter that records the
+Decode behavior is exercised against a fake adapter that records the
 engine setter calls, so these run without the compiled engine. End-to-end
-engine behaviour is covered by the CIP env integration tests.
+engine behavior is covered by the CIP env integration tests.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -195,7 +195,7 @@ class TestUnsizableShapes(unittest.TestCase):
 
 
 class TestFillingRatioIsExact(unittest.TestCase):
-    """C{filling_ratio} must normalise by the true rise, not C{geom1}."""
+    """C{filling_ratio} must normalize by the true rise, not C{geom1}."""
 
     def _reader(self, link_id: str) -> MarketMetricReader:
         # MarketMetricReader only reads ``config.agents``.

@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Pareto-front extraction for minimisation problems.
+Pareto-front extraction for minimization problems.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
@@ -31,7 +31,7 @@ from numpy.typing import ArrayLike, NDArray
 def is_dominated(point: ArrayLike, others: ArrayLike) -> bool:
     """Return whether C{point} is dominated by at least one row of C{others}.
 
-    For minimisation: row C{j} dominates C{point} iff C{j[d] <= point[d]}
+    For minimization: row C{j} dominates C{point} iff C{j[d] <= point[d]}
     for every dimension C{d} and C{j[d] < point[d]} for at least one C{d}.
 
     @param point: 1-D array of length C{d}.
@@ -51,7 +51,7 @@ def is_dominated(point: ArrayLike, others: ArrayLike) -> bool:
 
 
 def pareto_front(points: ArrayLike) -> NDArray[np.float64]:
-    """Return the non-dominated subset of C{points} (minimisation).
+    """Return the non-dominated subset of C{points} (minimization).
 
     @param points: 2-D array of shape C{(n, d)}.
     @type points: array_like

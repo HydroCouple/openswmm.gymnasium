@@ -50,7 +50,7 @@ def hypervolume(
     Monte-Carlo is used. Setting C{method="mc"} forces Monte-Carlo even
     in low dimensions (useful for cross-checking).
 
-    @param points: 2-D array of shape C{(n, d)} in minimisation
+    @param points: 2-D array of shape C{(n, d)} in minimization
         convention.
     @type points: array_like
     @param reference: 1-D array of length C{d} giving the worst-case
@@ -113,9 +113,9 @@ def normalized_hypervolume(
     mc_samples: int = 100_000,
     rng: np.random.Generator | None = None,
 ) -> float:
-    """Hypervolume in normalised C{[0, 1]^d} space.
+    """Hypervolume in normalized C{[0, 1]^d} space.
 
-    Normalises C{points} via L{normalize} so the reference becomes
+    Normalizes C{points} via L{normalize} so the reference becomes
     C{(1, ..., 1)} and the ideal becomes C{(0, ..., 0)}, then clamps to
     C{[0, 1]^d}: points beyond the ideal (better than best-case) are
     pinned to the ideal corner and points beyond the reference (worse

@@ -748,7 +748,7 @@ class ObservationBuilder:
             "elapsed_frac")}. Defaults to all three.
         @type features: sequence of str or C{None}
         @rtype: L{ObservationBuilder}
-        @raise ValueError: If C{features} contains an unrecognised key.
+        @raise ValueError: If C{features} contains an unrecognized key.
         """
         self._collectors.append(_ClockCollector(features))
         return self

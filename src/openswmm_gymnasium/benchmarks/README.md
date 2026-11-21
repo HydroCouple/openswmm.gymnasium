@@ -43,7 +43,7 @@ them; a 2-hour triangular design storm hits the upstream tank.
   flooding.
 - `peak_outflow` in OUT — keep the orifice closed to protect the
   downstream receiver.
-- `setpoint_smoothness` on ORIF — penalise jittery control.
+- `setpoint_smoothness` on ORIF — penalize jittery control.
 
 **Usage:**
 

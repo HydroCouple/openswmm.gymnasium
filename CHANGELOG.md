@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The package version is now `0.1.0.dev2`: openswmm.mcp needs the behavioural sets,
+The package version is now `0.1.0.dev2`: openswmm.mcp needs the behavioral sets,
 prediction bands and `decision_values` below. (`0.1.0.dev1` brought the study manifest,
 `apply_decisions` and `evaluate_decisions` that hydrocouple.platform and openswmm.mcp
 need.)
@@ -53,7 +53,7 @@ need.)
 - **`field_design`** (`FieldDesign`): a design factory over any writable
   `float`, `int` or `bool` element field by catalog path (`"subcatchment.width"`,
   `"node.invert_elev"`, `"link.barrels"`), written once before the simulation
-  initializes. Its components are labelled `field_design:<element id>`, and a
+  initializes. Its components are labeled `field_design:<element id>`, and a
   design dimension's key is now always the factory's own name.
 - **Alternatives and single designs.** `algorithm="alternatives"` with
   `OptimizationConfig.candidates` (decision mappings, the `decisions` of an
@@ -106,14 +106,14 @@ need.)
   `SpecError` with an `ErrorCode`. `ObservationSpec` gains `fields` and
   `cell_fields`.
 - **`openswmm_gymnasium.optimize`** (moved from openswmm.mcp): design and
-  policy optimisation over an `EnvConfig`. Ask/tell optimisers (random, grid
+  policy optimization over an `EnvConfig`. Ask/tell optimizers (random, grid
   and the Platypus MOEAs) evaluate each batch in process or on parallel
   worker processes (`OptimizationConfig.workers`; default all but one CPU, at
   most 8). An engine crash fails only its candidate and the worker is
   replaced; the study then stops (`on_failure="fail"`, the default) or scores
   the candidate with a penalty and continues (`"penalty"`). `run_study(...)`
   logs every evaluation to `evaluations.jsonl` and the Pareto front to
-  `result.json`, reports progress and honours cancellation. Serial and
+  `result.json`, reports progress and honors cancellation. Serial and
   parallel runs log identical evaluations.
 - **Integration tests** (`tests/integration/`, run in CI with the unit tier):
   Sync and Async vector envs reproduce serial runs exactly, and a recorded
@@ -209,8 +209,8 @@ need.)
 - **`ReactionCoefficientValue` design factory.** Searches
   `[REACTION_COEFFICIENTS]` **PARAMETER** values — the rate constants,
   half-saturation constants, yields and stoichiometric factors a
-  water-quality modeller normally fits by hand. Turns calibration into an
-  ordinary optimisation over the same env machinery that does CIP sizing.
+  water-quality modeler normally fits by hand. Turns calibration into an
+  ordinary optimization over the same env machinery that does CIP sizing.
   CONSTANT coefficients are refused at `bind` rather than written and
   silently ignored. Bounds are in the model's own expression units,
   unconverted.
@@ -235,7 +235,7 @@ need.)
   router other than `FLOW_ROUTING FV` — a value indistinguishable from "no
   slot flow" — which is documented loudly at the call site.
 - **`SurchargeSlotShare` reward term.** Run-level Preissmann-slot storage
-  share as a pressurisation proxy; dimensionless in `[0, 1]`, the one term
+  share as a pressurization proxy; dimensionless in `[0, 1]`, the one term
   with no unit-system dependence. Registered as `"surcharge_slot_share"`.
   `bind` reads `[OPTIONS] FLOW_ROUTING` and **raises** on any non-FV router
   rather than reporting a permanently perfect network. The statistic is a
@@ -294,7 +294,7 @@ need.)
   height instead of being left at its baseline. Shapes with no scalable
   dimension (`IRREGULAR`, `STREET_XSECT`, `DUMMY`) are rejected at `bind`.
 - **Exact filling ratios (G2).** `MarketMetricReader`'s `filling_ratio`
-  normalises by the section's true rise instead of `geom1`, so it is exact for
+  normalizes by the section's true rise instead of `geom1`, so it is exact for
   every shape rather than "approximate for non-CIRCULAR".
 - **Tabular storage design (G3).** `StorageVolume` accepts TABULAR storage
   nodes, scaling the node's depth–area curve through the new
@@ -357,7 +357,7 @@ need.)
   `Controls.set_link_setting` (defensive `np.clip` to bounds).
 - Design factories: `LinkRoughness`, `LinkLength`, `LinkDiameter`
   (preserves cross-section shape; see G2 above for the shape-aware sizing
-  that superseded its original `geom1`-only behaviour), `NodeMaxDepth`.
+  that superseded its original `geom1`-only behavior), `NodeMaxDepth`.
 - Design factories applied **between** `Solver.open()` and
   `Solver.initialize()` so the engine picks up overridden values during
   data-structure setup.

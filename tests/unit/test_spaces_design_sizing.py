@@ -20,7 +20,7 @@ Covers L{StorageVolume}, L{LIDPlacement}, and L{RDIIUnitHydrograph} — the
 "explore designs more exhaustively" family (plan §3.1). Space construction,
 bound validation, and B{bind/apply decode} are exercised against a mock
 adapter that records the engine setter calls, so these run without the
-compiled engine. End-to-end engine behaviour is covered by the CIP env
+compiled engine. End-to-end engine behavior is covered by the CIP env
 integration tests.
 
 @author: Caleb Buahin

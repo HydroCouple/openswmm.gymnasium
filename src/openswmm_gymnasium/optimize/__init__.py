@@ -15,12 +15,12 @@
 # limitations under the License.
 
 """
-Design and policy optimisation over env configs.
+Design and policy optimization over env configs.
 
   - L{space<openswmm_gymnasium.optimize.space>} -- the decision vector of a
     config (L{design_dimensions}).
   - L{optimizers<openswmm_gymnasium.optimize.optimizers>} -- ask/tell
-    optimisers: random, grid and the Platypus MOEAs.
+    optimizers: random, grid and the Platypus MOEAs.
   - L{evaluation<openswmm_gymnasium.optimize.evaluation>} -- one episode per
     candidate, in process or on parallel worker processes.
   - L{study<openswmm_gymnasium.optimize.study>} -- L{run_study}, which ties

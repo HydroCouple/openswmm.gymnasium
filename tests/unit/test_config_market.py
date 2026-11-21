@@ -76,7 +76,7 @@ def _valid_dict() -> dict:
 class TestRoundTrip(unittest.TestCase):
     def test_from_dict_fills_defaults(self):
         cfg = MarketConfig.from_dict(_valid_dict())
-        # Schema defaults are materialised.
+        # Schema defaults are materialized.
         self.assertEqual(cfg.meta.treatment_tag, "TREATED")
         self.assertEqual(cfg.agents[0].role, "both")
         self.assertEqual(cfg.cost_curves["buyer"].floor, 0.0)

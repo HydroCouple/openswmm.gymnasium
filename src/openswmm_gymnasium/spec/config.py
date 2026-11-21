@@ -94,7 +94,7 @@ def coerce_json_param(value: Any, param: str) -> Any:
     Several MCP clients (and LLM tool-callers) serialize nested object/array
     arguments as JSON I{strings} even when the tool schema types them as
     C{object}/C{array}; the server would then reject the string. Decoding a
-    string argument here makes every C{gym_*} tool robust to that behaviour —
+    string argument here makes every C{gym_*} tool robust to that behavior —
     e.g. C{optimization='{"algorithm":"nsga2","budget":600}'} is accepted
     exactly like the equivalent dict, so a requested NSGA-II run can never be
     silently downgraded because its argument failed to bind.
@@ -384,7 +384,7 @@ class PolicyFactorySpec(_KindSpecModel):
     _category: ClassVar[str] = "policy_factory"
 
 
-# Public alias used by tools that accept either factory flavour.
+# Public alias used by tools that accept either factory flavor.
 ActionFactorySpec = RuntimeFactorySpec | DesignFactorySpec
 
 

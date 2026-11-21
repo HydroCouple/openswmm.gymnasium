@@ -18,10 +18,10 @@
 openswmm_gymnasium.scoring
 ==========================
 
-Multi-objective optimisation scoring utilities. Plan §5.3.
+Multi-objective optimization scoring utilities. Plan §5.3.
 
 All functions operate on numpy arrays of shape C{(n_points, n_objectives)}
-in B{minimisation} convention (smaller is better). The env's reward
+in B{minimization} convention (smaller is better). The env's reward
 composer is responsible for the sign-flipping bookkeeping at the
 boundary (plan §0 #5); functions here always treat the input as costs.
 

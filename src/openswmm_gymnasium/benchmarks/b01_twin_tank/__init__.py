@@ -21,7 +21,7 @@ Plan §6A: two storage tanks in series with a controllable side orifice
 between them, draining through a conduit to an outfall. A 2-hour
 triangular design storm hits the upstream tank's subcatchment.
 
-Competing objectives (all framed as cost-to-minimise for the env's
+Competing objectives (all framed as cost-to-minimize for the env's
 internal aggregation; sign flipping handled per term direction):
 
   - C{flooding_volume} — overflow at C{T1} (upstream).
@@ -35,7 +35,7 @@ Three Gymnasium IDs are registered:
     setting; design fixed at the C{.inp} defaults.
   - C{OpenSWMM/TwinTank-Joint-v0} — CIP (tank max-depths) + RTC.
   - C{OpenSWMM/TwinTank-MORTC-v0} — multi-objective RTC variant
-    returning vector reward and per-episode normalised HV in
+    returning vector reward and per-episode normalized HV in
     C{info["mo_score"]}.
 
 @author: Caleb Buahin
@@ -74,7 +74,7 @@ CONTROLLED_LINK = "ORIF"
 PEAK_LINK = "OUT"
 FLOOD_NODE = "T1"
 
-# Reference / ideal points for normalised HV. Tunable per scenario;
+# Reference / ideal points for normalized HV. Tunable per scenario;
 # these are deliberately loose so a default run lands in [0, 1].
 MO_IDEAL = [0.0, 0.0, 0.0]  # zero flooding, zero peak, zero churn
 MO_REF = [1.0e5, 50.0, 100.0]  # generous nadir; refine after evaluation runs

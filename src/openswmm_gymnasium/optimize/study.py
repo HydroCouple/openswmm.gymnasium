@@ -17,7 +17,7 @@
 """
 Run a design or policy search over an env config.
 
-L{run_study} drives an ask/tell optimiser: each batch it asks for is
+L{run_study} drives an ask/tell optimizer: each batch it asks for is
 evaluated (in parallel on worker processes by default), logged to
 C{evaluations.jsonl}, and told back. The Pareto set (or the best
 candidate for one objective) goes to C{result.json}. With hydrocouple.platform
@@ -80,7 +80,7 @@ class OptimizationConfig(BaseModel):
         does: C{"fail"} stops the study; C{"penalty"} records it with every
         objective set to C{failure_penalty} and continues.
     @ivar failure_penalty: Cost given to each objective of a failed candidate.
-    @ivar acceptance: Which evaluations are behavioural (a calibration's acceptance rule,
+    @ivar acceptance: Which evaluations are behavioral (a calibration's acceptance rule,
         L{AcceptanceRule<openswmm_gymnasium.optimize.uncertainty.AcceptanceRule>}). It does
         not change the search; it travels in the study manifest for
         L{behavioural_set<openswmm_gymnasium.optimize.uncertainty.behavioural_set>}.
@@ -181,7 +181,7 @@ def run_study(
     """Search the env config's design or policy space; return the result payload.
 
     Writes C{evaluations.jsonl} (one record per candidate, in the order the
-    optimiser proposed them) and C{result.json} under C{output_dir}, and the
+    optimizer proposed them) and C{result.json} under C{output_dir}, and the
     study manifest with the model packaged under C{output_dir/package}.
 
     @param manifest: C{True} requires the study manifest; C{False} skips it; C{None}

@@ -63,7 +63,7 @@ _SECONDS_PER_DAY = 86400.0
 
 
 class SwmmCIPEnv(gym.Env):
-    """Single-step CIP environment for design-only optimisation.
+    """Single-step CIP environment for design-only optimization.
 
     @ivar metadata: Gymnasium metadata (no rendering; viz §5.5 consumes
         recorded trajectories).

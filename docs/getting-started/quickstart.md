@@ -42,7 +42,7 @@ print(f"Cumulative cost vector: {info['cumulative_cost']}")
 env.close()
 ```
 
-## Recording trajectories for visualisation
+## Recording trajectories for visualization
 
 ```python
 import gymnasium as gym
@@ -69,7 +69,7 @@ fig.write_html("pareto.html")
 
 ## Joint CIP + RTC
 
-For envs that optimise both design (pre-simulation) and runtime control:
+For envs that optimize both design (pre-simulation) and runtime control:
 
 ```python
 import gymnasium as gym

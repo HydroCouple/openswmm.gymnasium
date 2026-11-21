@@ -377,7 +377,7 @@ the limits under Units below.
 
 ## Units
 
-Ordinary 1D fields use their catalogued model-unit labels; fixed-unit fields
+Ordinary 1D fields use their cataloged model-unit labels; fixed-unit fields
 retain their documented units. The builder labels
 each feature from the catalog's unit kinds:
 
@@ -388,7 +388,7 @@ builder.units("US", "CFS")   # ['ft', 'CFS', 'fraction', 'dimensionless', ...]
 Every env reports the same list for the loaded model in its `reset()` info as
 `info["observation_units"]`, next to `info["unit_system"]` and
 `info["flow_units"]`. 2D quantities are SI whatever the model's flow units:
-depths and heads are labelled `m`, rain and source rates `m/s`. A feature
+depths and heads are labeled `m`, rain and source rates `m/s`. A feature
 whose source records no unit gets an empty label.
 
 ### Limits of temperature, age and reaction observations

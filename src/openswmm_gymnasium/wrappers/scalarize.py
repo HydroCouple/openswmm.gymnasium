@@ -37,7 +37,7 @@ import numpy as np
 class LinearScalarize(gym.RewardWrapper):
     """Scalar reward = C{dot(weights, vector_reward)}.
 
-    Weights need not sum to one; the wrapper does not normalise. Each
+    Weights need not sum to one; the wrapper does not normalize. Each
     component is multiplied by its corresponding weight before
     summation.
 

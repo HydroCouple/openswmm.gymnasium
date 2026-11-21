@@ -117,7 +117,7 @@ class TestSpread(unittest.TestCase):
 
     def test_uniform_spacing_zero_stddev(self):
         # Three collinear evenly-spaced points → uniform spacing →
-        # stddev of nearest-neighbour distances is zero.
+        # stddev of nearest-neighbor distances is zero.
         front = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]])
         self.assertAlmostEqual(spread(front), 0.0, places=6)
 

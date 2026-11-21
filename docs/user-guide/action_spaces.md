@@ -62,7 +62,7 @@ Applied **every step** via the appropriate engine setter.
 
 `FieldSetpoint(path, ids, low, high)` actuates any writable numeric field of
 an element kind in the engine catalog. The named factories above add
-engine-specific behaviour (sub-view lookups, the heat module's two-tier
+engine-specific behavior (sub-view lookups, the heat module's two-tier
 guard); for a plain field, `FieldSetpoint` needs no new code:
 
 ```python
@@ -192,9 +192,9 @@ a transport process**, which makes them calibration / inverse-problem handles
 at least as much as CIP levers.
 
 `ReactionCoefficientValue` is the high-value one. Reaction coefficients are
-exactly the quantities a water-quality modeller normally fits by hand against
+exactly the quantities a water-quality modeler normally fits by hand against
 observed concentrations, so exposing them as a `Box` turns calibration into an
-ordinary optimisation over the same env machinery that does CIP sizing: pair
+ordinary optimization over the same env machinery that does CIP sizing: pair
 the factory with an observed-vs-simulated objective and the search *is* a
 calibration run; pair it with a treatment-performance objective and it is a
 process-design run instead.
@@ -211,7 +211,7 @@ nothing raised, no reward signal ever moving.
 
 Two further engine surfaces are reachable but deliberately not wrapped:
 `InitialQuality` (per-element initial temperature / age / species rows — an
-initial-condition randomiser, so it belongs with hot-start seeding rather than
+initial-condition randomizer, so it belongs with hot-start seeding rather than
 here) and `ProcessComponents` (registration of external process plugins by
 config path — a model-assembly concern with no continuous search space).
 
@@ -237,7 +237,7 @@ flooding volume).
   - Controller
 * - {py:class}`~openswmm_gymnasium.spaces.control_curve.ControlCurvePolicySpace`
   - `Box`: the `[y_low, y_high]` setting at each **fixed** `x_knot` of each
-    asset, asset-major; labelled `control_curve/<link_id>/y[<k>]`
+    asset, asset-major; labeled `control_curve/<link_id>/y[<k>]`
   - {py:class}`~openswmm_gymnasium.control.ControlCurveController` (reactive
     piecewise-linear breakpoint curve)
 ```

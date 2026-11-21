@@ -34,7 +34,7 @@ See {py:class}`openswmm_gymnasium.envs.SwmmJointCIPRTCEnv`.
 
 Returns vector reward (one component per `RewardTerm`) with per-term
 sign-flipping so higher is better. Populates `info["mo_score"]` at
-episode termination with the single-point normalised hypervolume of
+episode termination with the single-point normalized hypervolume of
 the cumulative-cost vector.
 
 See {py:class}`openswmm_gymnasium.envs.SwmmMORTCEnv`.

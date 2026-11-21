@@ -326,7 +326,7 @@ class EnvHandle:
     @ivar env_id: Caller-chosen identifier.
     @ivar env: The live (wrapped) C{gymnasium.Env}.
     @ivar config: The config it was built from.
-    @ivar lock: Serialises reset/step/close on this env.
+    @ivar lock: Serializes reset/step/close on this env.
     @ivar last_used: Monotonic timestamp of last access.
     @ivar step_count: Env steps since the last reset.
     """

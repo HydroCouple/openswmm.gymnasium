@@ -20,12 +20,12 @@ Multi-objective Gymnasium environments.
 Plan §2.1 + §5.3. Returns vector reward (one component per reward term)
 instead of the scalar-summed reward the single-objective envs return.
 The agent sees per-step vector reward; at episode termination,
-C{info["mo_score"]} is populated with the single-point normalised
+C{info["mo_score"]} is populated with the single-point normalized
 hypervolume of the episode's cumulative cost vector against a
 user-supplied L{ideal_point} and L{reference_point}.
 
 If L{mo_gymnasium} is installed, L{SwmmMORTCEnv} additionally subclasses
-L{mo_gymnasium.MOEnv} so MORL-Baselines and similar agents recognise it
+L{mo_gymnasium.MOEnv} so MORL-Baselines and similar agents recognize it
 out of the box. When L{mo_gymnasium} is absent, the env still works as
 a plain L{gymnasium.Env} returning a numpy-array reward (any
 MO-Gymnasium-API-compatible consumer will accept it).
@@ -69,7 +69,7 @@ class SwmmMORTCEnv(SwmmRTCEnv):
     Gymnasium convention.
 
     At episode termination, C{info["mo_score"]} carries the single-point
-    normalised hypervolume of the episode's cumulative B{cost} vector
+    normalized hypervolume of the episode's cumulative B{cost} vector
     (i.e. before the higher-is-better sign flip) against
     C{(ideal_point, reference_point)}. The resulting score is in
     C{[0, 1]}.
@@ -90,11 +90,11 @@ class SwmmMORTCEnv(SwmmRTCEnv):
     ) -> None:
         """
         @param ideal_point: Per-objective best-case (lowest cost / most
-            beneficial) value used for hypervolume normalisation. Must
+            beneficial) value used for hypervolume normalization. Must
             match the order of C{reward_terms}. Required.
         @type ideal_point: sequence of float
         @param reference_point: Per-objective nadir / worst-case value
-            used for hypervolume normalisation. Must match the order of
+            used for hypervolume normalization. Must match the order of
             C{reward_terms}. Required.
         @type reference_point: sequence of float
         @raise ValueError: If C{reward_terms} is empty, or
@@ -127,7 +127,7 @@ class SwmmMORTCEnv(SwmmRTCEnv):
                 "reference_point must be strictly greater than ideal_point in every dimension"
             )
 
-        # Vector reward space — used by MO-Gymnasium and analogue agents.
+        # Vector reward space — used by MO-Gymnasium and analog agents.
         self.reward_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -176,7 +176,7 @@ class SwmmMORTCEnv(SwmmRTCEnv):
         self._cumulative_cost += np.where(signs < 0, cost_vec, -cost_vec)
 
         if terminated:
-            # Single-point HV in normalised space. Plan §5.3: result in [0, 1].
+            # Single-point HV in normalized space. Plan §5.3: result in [0, 1].
             mo_score = normalized_hypervolume(
                 self._cumulative_cost.reshape(1, -1),
                 self._ideal,

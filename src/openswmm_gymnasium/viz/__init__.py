@@ -18,7 +18,7 @@
 openswmm_gymnasium.viz
 =======================
 
-Plotly-only visualisation layer for optimisation trajectories. Plan §5.5
+Plotly-only visualization layer for optimization trajectories. Plan §5.5
 + §10 P6.5.
 
 This subpackage is gated by an optional install extra. If Plotly is not
@@ -31,7 +31,7 @@ Public API:
   - L{TrajectoryRun} — directory-of-JSONL multi-episode loader.
   - L{figures.reward_curves} — scalar/vector reward over time.
   - L{figures.pareto_front} — 2-D / 3-D scatter, non-dominated highlighted.
-  - L{figures.hypervolume_trace} — normalised HV per episode.
+  - L{figures.hypervolume_trace} — normalized HV per episode.
   - L{figures.action_timeseries} — per-step action heatmap.
   - L{figures.network_state_heatmap} — node depths / link flows over time.
   - L{figures.flooding_attribution} — stacked area of cost-component

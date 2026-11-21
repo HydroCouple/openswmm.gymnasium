@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-How uncertain a calibration is: its behavioural set and the prediction bands of the set.
+How uncertain a calibration is: its behavioral set and the prediction bands of the set.
 
 A sampling study (Latin hypercube, Sobol, random) scores parameter sets against
 observations. L{behavioural_set} keeps the sets its L{AcceptanceRule} accepts, the
@@ -69,7 +69,7 @@ class Threshold(BaseModel):
 
 
 class AcceptanceRule(BaseModel):
-    """Which evaluations are behavioural: every threshold met, then the best fraction.
+    """Which evaluations are behavioral: every threshold met, then the best fraction.
 
     @ivar thresholds: Bounds every member meets.
     @ivar best_fraction: Keep only the best this fraction of the study's successful
@@ -219,7 +219,7 @@ def prediction_bands(
 
     @param env_config: The study's L{EnvConfig<openswmm_gymnasium.spec.config.EnvConfig>},
         with C{inp_path} the local model.
-    @param members: Decisions of each member (a behavioural set's C{members}, or their
+    @param members: Decisions of each member (a behavioral set's C{members}, or their
         C{decisions}).
     @param series: C{(catalog path, element id)} pairs, e.g. C{("link.flow", "C11")}.
     @param out_dir: Folder for one CSV per series: time, the quantiles, then each member.

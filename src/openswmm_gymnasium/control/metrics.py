@@ -21,7 +21,7 @@ C{{agent_id: stress in [0,1]}} mapping. This reader produces that mapping from a
 running L{SolverAdapter}, normalizing each agent's raw state to [0,1] per its
 C{stress_metric}.
 
-Stress-metric convention (IMPORTANT — a deliberate modelling choice):
+Stress-metric convention (IMPORTANT — a deliberate modeling choice):
 each metric is normalized so that it B{rises toward 1.0 as the element nears its
 operating limit} (fuller pipe, less freeboard, fuller storage, closer to spill).
 This makes every cost curve monotonic-increasing in stress for B{both} buyers

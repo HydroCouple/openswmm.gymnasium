@@ -110,7 +110,7 @@ class ReliabilityMarginParams(_Params):
 class SetpointSmoothnessParams(_Params):
     """Params for the C{setpoint_smoothness} reward term.
 
-    @ivar link_ids: Links whose setting trajectories to penalise (required).
+    @ivar link_ids: Links whose setting trajectories to penalize (required).
     @ivar name: Term identifier.
     """
 
@@ -177,8 +177,8 @@ class SurchargeSlotShareParams(_Params):
     C{ROUTING_MODEL DYNWAVE} model at bind rather than reporting a
     permanently perfect network.
 
-    @ivar link_ids: Closed-conduit link IDs whose pressurisation to
-        penalise (required). Open channels and pumps have no slot and
+    @ivar link_ids: Closed-conduit link IDs whose pressurization to
+        penalize (required). Open channels and pumps have no slot and
         contribute a structural zero, so do not pass the whole network.
     @ivar name: Term identifier.
     """
@@ -613,7 +613,7 @@ class WaterAgeSourceAgeParams(_Params):
 
     @ivar sources: Water-age pathway names to drive (required).
     @ivar low: Lower bound in hours; may be negative (no default — either
-        default would make a modelling decision for the caller).
+        default would make a modeling decision for the caller).
     @ivar high: Upper bound in hours.
     @ivar name: Action-space key for this factory.
     """
@@ -858,7 +858,7 @@ for _spec in [
         "reward_term",
         "openswmm_gymnasium.rewards:SurchargeSlotShare",
         SurchargeSlotShareParams,
-        "Run-level Preissmann-slot storage share as a pressurisation proxy, "
+        "Run-level Preissmann-slot storage share as a pressurization proxy, "
         "dimensionless in [0,1] (cost to minimize). FINITE-VOLUME ROUTING "
         "ONLY: reads a hard 0.0 under dynamic wave, so the term refuses a "
         "DYNWAVE model at bind rather than reporting a perfect network.",

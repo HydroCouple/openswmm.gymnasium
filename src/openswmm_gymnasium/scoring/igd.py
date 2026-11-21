@@ -39,7 +39,7 @@ def igd(approximation: ArrayLike, reference_front: ArrayLike) -> float:
     @type approximation: array_like
     @param reference_front: 2-D array, shape C{(m, d)}.
     @type reference_front: array_like
-    @return: Mean nearest-neighbour distance, or C{inf} if either input
+    @return: Mean nearest-neighbor distance, or C{inf} if either input
         is empty.
     @rtype: float
     """
@@ -55,7 +55,7 @@ def igd(approximation: ArrayLike, reference_front: ArrayLike) -> float:
 def igd_plus(approximation: ArrayLike, reference_front: ArrayLike) -> float:
     """IGD+ — distance is computed only along dominated dimensions.
 
-    For minimisation, the IGD+ distance from reference point C{r} to
+    For minimization, the IGD+ distance from reference point C{r} to
     approximation point C{a} replaces C{(a - r)} with C{max(0, a - r)}
     before computing the Euclidean norm. The result is zero whenever
     C{a} weakly dominates C{r}, which makes IGD+ Pareto-compliant in a

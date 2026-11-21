@@ -140,7 +140,7 @@ python -m pytest tests/unit/test_catalog_fields.py tests/unit/test_observations_
 ```
 
 Generic `add_field` accepts scalar numeric **element properties**, not every
-catalogued method or service. `add_cell_field` handles supported scalar/bulk
+cataloged method or service. `add_cell_field` handles supported scalar/bulk
 2D methods and verifies cell counts. A catalog reachability test does not prove
 that every field is a useful observation, every writable field is a runtime
 actuator, or every optional native feature is present. New domains still need
