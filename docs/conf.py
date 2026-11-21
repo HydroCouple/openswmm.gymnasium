@@ -55,6 +55,7 @@ html_title = f"{project} {release}"
 
 # Project icon — used as the sidebar logo and the browser favicon.
 html_static_path = ["_static"]
+html_css_files = ['hydrocouple-palette.css']
 html_logo = "_static/hydrocouplecomposer.png"
 html_favicon = "_static/hydrocouplecomposer.png"
 
