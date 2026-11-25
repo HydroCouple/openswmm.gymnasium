@@ -50,7 +50,8 @@ jobs:
         # SPHINX_OFFLINE shorts out intersphinx so the build is hermetic.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[docs]"
+          # spec: autodoc imports openswmm_gymnasium.spec, which needs pydantic.
+          pip install -e ".[docs,spec]"
 
       - name: Build Sphinx HTML (strict, fail on warning)
         env:
