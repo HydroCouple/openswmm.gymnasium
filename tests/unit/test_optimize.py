@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shutil
 import threading
 import time
@@ -159,6 +160,34 @@ def test_platypus_repeats_exactly_for_one_seed():
     first = _platypus_vectors(7)
     assert first == _platypus_vectors(7)
     assert first != _platypus_vectors(8)
+
+
+def test_platypus_studies_running_at_once_each_repeat_exactly():
+    pytest.importorskip("platypus")
+    alone = _platypus_vectors(7)
+    opts = {
+        name: make_optimizer(
+            "nsga2", np.zeros(2), np.ones(2), 2, budget=120, seed=7, population_size=20
+        )
+        for name in ("a", "b")
+    }
+    seen = {name: [] for name in opts}
+    live = dict(opts)
+    try:
+        while live:
+            for name, opt in list(live.items()):  # one generation each, in turn
+                random.random()  # other code draws from the process-wide generator
+                batch = opt.ask()
+                if not batch:
+                    del live[name]
+                    continue
+                opt.tell(batch, [[v[0], 1.0 - v[0] + v[1]] for v in batch])
+                seen[name] += [v.tolist() for v in batch]
+    finally:
+        for opt in opts.values():
+            opt.close()
+    assert seen["a"] == alone
+    assert seen["b"] == alone
 
 
 def test_platypus_close_mid_run_returns_promptly():

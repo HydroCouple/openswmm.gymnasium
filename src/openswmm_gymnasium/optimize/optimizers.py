@@ -42,6 +42,7 @@ from __future__ import annotations
 import itertools
 import queue
 import random
+import sys
 import threading
 from collections.abc import Sequence
 from typing import Protocol
@@ -137,6 +138,37 @@ class _Stop(Exception):
     """Ends the background Platypus run."""
 
 
+class _ThreadRandom:
+    """Stands in for the C{random} module inside Platypus's own modules.
+
+    A L{PlatypusOptimizer}'s thread draws from that optimizer's C{random.Random};
+    any other thread draws from Python's process-wide generator, as before.
+    """
+
+    local = threading.local()
+
+    def __getattr__(self, name: str):
+        return getattr(getattr(self.local, "rng", None) or random, name)
+
+
+_PLATYPUS_RANDOM = _ThreadRandom()
+_PLATYPUS_RANDOM_LOCK = threading.Lock()
+
+
+def _isolate_platypus_random() -> None:
+    """Point each loaded Platypus module's C{random} at L{_PLATYPUS_RANDOM}.
+
+    Platypus calls C{random.uniform}, C{random.choice} and the like on the module
+    itself and takes no generator, so this is how one optimizer gets its own.
+    """
+    with _PLATYPUS_RANDOM_LOCK:
+        for name, module in list(sys.modules.items()):
+            if (name == "platypus" or name.startswith("platypus.")) and getattr(
+                module, "random", None
+            ) is random:
+                module.random = _PLATYPUS_RANDOM
+
+
 class PlatypusOptimizer:
     """A Platypus MOEA driven by ask/tell.
 
@@ -147,9 +179,9 @@ class PlatypusOptimizer:
     reaches C{budget} evaluations, counting offspring that are unchanged
     copies of a parent, which are not evaluated again.
 
-    Platypus draws from Python's process-wide C{random}. A C{seed} seeds it
-    just before the run starts, so one study at a time repeats exactly; studies
-    running at once in one process share that generator and do not.
+    Platypus draws from Python's C{random} module. Each optimizer gives its
+    algorithm a C{random.Random} of its own, seeded with C{seed}, so studies
+    running at once in one process each repeat exactly (L{_ThreadRandom}).
     """
 
     def __init__(
@@ -199,16 +231,21 @@ class PlatypusOptimizer:
         problem.directions[:] = [platypus.Problem.MINIMIZE] * n_objectives
         problem.function = lambda variables: self._costs[tuple(variables)]
         cls = getattr(platypus, PLATYPUS_ALGORITHMS[algorithm])
-        if seed is not None:
-            random.seed(seed)
-        engine = cls(problem, population_size=population_size, evaluator=_BatchEvaluator())
+        _isolate_platypus_random()
+        self._rng = random.Random(seed)
         self._thread = threading.Thread(
-            target=self._run, args=(engine, budget), name="platypus", daemon=True
+            target=self._run,
+            args=(cls, problem, population_size, _BatchEvaluator(), budget),
+            name="platypus",
+            daemon=True,
         )
         self._thread.start()
 
-    def _run(self, engine, budget: int) -> None:
+    def _run(self, cls, problem, population_size: int, evaluator, budget: int) -> None:
+        # The algorithm is built here too: everything it draws comes from self._rng.
+        _ThreadRandom.local.rng = self._rng
         try:
+            engine = cls(problem, population_size=population_size, evaluator=evaluator)
             engine.run(budget)
         except _Stop:
             pass
