@@ -1,9 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Inverted Generational Distance (IGD) and IGD+.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -23,7 +39,7 @@ def igd(approximation: ArrayLike, reference_front: ArrayLike) -> float:
     @type approximation: array_like
     @param reference_front: 2-D array, shape C{(m, d)}.
     @type reference_front: array_like
-    @return: Mean nearest-neighbour distance, or C{inf} if either input
+    @return: Mean nearest-neighbor distance, or C{inf} if either input
         is empty.
     @rtype: float
     """
@@ -39,7 +55,7 @@ def igd(approximation: ArrayLike, reference_front: ArrayLike) -> float:
 def igd_plus(approximation: ArrayLike, reference_front: ArrayLike) -> float:
     """IGD+ — distance is computed only along dominated dimensions.
 
-    For minimisation, the IGD+ distance from reference point C{r} to
+    For minimization, the IGD+ distance from reference point C{r} to
     approximation point C{a} replaces C{(a - r)} with C{max(0, a - r)}
     before computing the Euclidean norm. The result is zero whenever
     C{a} weakly dominates C{r}, which makes IGD+ Pareto-compliant in a

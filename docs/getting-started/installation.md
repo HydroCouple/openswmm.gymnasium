@@ -5,7 +5,16 @@
 - Python 3.10 or later
 - The compiled [openswmm.engine](https://github.com/HydroCouple/openswmm.engine)
   v6 (handle-based, thread-safe) — installed automatically as a required
-  dependency.
+  dependency (`openswmm>=6.0.0a4.dev1`). This development release includes
+  the `openswmm.engine.catalog` API required by the current adapter. Later
+  development builds and the completed `6.0.0a4` release satisfy this minimum.
+
+Check the required capability before running an environment:
+
+```python
+from openswmm.engine import catalog
+assert catalog.lookup("node.depth")["form"] == "property"
+```
 
 ## Install from PyPI
 
@@ -14,7 +23,8 @@ pip install openswmm.gymnasium                      # core
 pip install "openswmm.gymnasium[mo]"                # + multi-objective (mo-gymnasium)
 pip install "openswmm.gymnasium[platypus]"          # + Platypus MOO adapter
 pip install "openswmm.gymnasium[viz]"               # + Plotly trajectory visualizations
-pip install "openswmm.gymnasium[mo,platypus,viz]"   # everything
+pip install "openswmm.gymnasium[spec]"              # + JSON env specs (pydantic)
+pip install "openswmm.gymnasium[mo,platypus,viz,spec]"   # everything
 ```
 
 ## Install from source

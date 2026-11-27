@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Solver lifecycle bridge.
 
@@ -5,15 +21,24 @@ Wraps L{openswmm.engine.Solver} (the handle-based v6 engine) to expose
 the minimum surface the rest of the package needs:
 
   - Lifecycle: L{SolverAdapter.open}, L{SolverAdapter.initialize},
-    L{SolverAdapter.step}, L{SolverAdapter.stride},
-    L{SolverAdapter.end}, L{SolverAdapter.report},
-    L{SolverAdapter.close}.
+    L{SolverAdapter.start}, L{SolverAdapter.step},
+    L{SolverAdapter.stride}, L{SolverAdapter.end},
+    L{SolverAdapter.report}, L{SolverAdapter.close}.
   - Idempotent L{SolverAdapter.close} / context-manager protocol.
-  - Lazy L{openswmm.engine.Nodes} / L{openswmm.engine.Links} /
-    L{openswmm.engine.Controls} accessors cached per adapter instance.
+  - Opt-in lenient (permissive) open with readable validation output via
+    L{SolverAdapter.open}C{(lenient=True)}, L{SolverAdapter.open_errors},
+    and L{SolverAdapter.open_warnings} — for pre-flight validation of
+    programmatically-generated / perturbed training models.
+  - Element access by L{openswmm.engine.catalog} path (L{SolverAdapter.index},
+    L{SolverAdapter.read}, L{SolverAdapter.read_all}, L{SolverAdapter.write},
+    L{SolverAdapter.call}); anything that is not one catalog field uses the
+    real engine API on L{SolverAdapter.solver}.
   - Hard guard against C{openswmm.legacy.engine.Solver} — passing a
     legacy solver into the adapter raises
     L{LegacySolverRejectedError}. Plan §0 #7 / §2.3.
+  - The engine B{capability probe} (L{require_engine_capabilities}, in
+    L{requirements<openswmm_gymnasium._engine.requirements>}) run at
+    adapter construction.
 
 The adapter does B{not} add any high-level domain logic (observations,
 rewards, action application). Those live in their respective modules
@@ -21,17 +46,80 @@ and consume a L{SolverAdapter} instance.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
-from openswmm.engine import Controls, EngineState, Gages, Links, Nodes, Solver, Subcatchments
+from openswmm.engine import EngineState, HotStart, Solver
+from openswmm.engine import catalog as _catalog
+
+from openswmm_gymnasium._engine.requirements import require_engine_capabilities
 
 PathLike = str | os.PathLike
+
+
+# Scalar field types an observation or actuator can carry as one float.
+_NUMERIC = frozenset({"float", "int", "bool"})
+
+
+def field_entry(path: str) -> dict[str, Any]:
+    """Catalog entry of a numeric element field such as C{"node.depth"}.
+
+    Field paths name an element kind, optional sub-views and a property:
+    C{"link.flow"}, C{"link.stats.max_flow"}, C{"subcatchment.runoff"}.
+    Every numeric property in L{openswmm.engine.catalog} is addressable.
+
+    @param path: Dotted catalog path.
+    @type path: str
+    @raise ValueError: If the path is not a numeric property of an element kind.
+    @rtype: dict
+    """
+    try:
+        entry = _catalog.lookup(path)
+    except KeyError:
+        raise ValueError(
+            f"{path!r} is not an engine field; see openswmm.engine.catalog for valid paths"
+        ) from None
+    if entry["form"] != "property" or entry["type"] not in _NUMERIC:
+        raise ValueError(
+            f"{path!r} is not a numeric property ({entry.get('type') or entry['form']})"
+        )
+    element_kind(path)
+    return entry
+
+
+def element_kind(path: str) -> str:
+    """The element kind a field path belongs to (C{"link"} for C{"link.stats.max_flow"}).
+
+    @raise ValueError: If the path does not start with an element kind.
+    @rtype: str
+    """
+    kind = path.split(".", 1)[0]
+    if "collection" not in _catalog.targets().get(kind, {}):
+        kinds = sorted(k for k, t in _catalog.targets().items() if "collection" in t)
+        raise ValueError(f"{path!r} does not start with an element kind ({', '.join(kinds)})")
+    return kind
+
+
+# OADate epoch: serial day 0 is 1899-12-30 (midnight). An OADate is the
+# number of decimal days since this epoch, so its fractional part is the
+# time-of-day. The engine's v6 Python API exposes simulation time as
+# :class:`datetime.datetime`; the observation builder consumes OADate
+# floats, so the time accessors below convert at the boundary.
+_OADATE_EPOCH = datetime(1899, 12, 30)
+
+
+def _to_oadate(dt: datetime) -> float:
+    """Convert an engine :class:`datetime.datetime` to an OADate float."""
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return (dt - _OADATE_EPOCH).total_seconds() / 86400.0
 
 
 class LegacySolverRejectedError(TypeError):
@@ -110,7 +198,10 @@ class SolverAdapter:
         @type solver: L{openswmm.engine.Solver} or C{None}
         @raise LegacySolverRejectedError: If C{solver} is a legacy v5
             singleton solver.
+        @raise EngineCapabilityError: If the installed
+            C{openswmm.engine} is missing a symbol this package requires.
         """
+        require_engine_capabilities()
         self._inp = str(Path(inp))
         self._rpt = "" if rpt is None else str(Path(rpt))
         self._out = "" if out is None else str(Path(out))
@@ -125,56 +216,88 @@ class SolverAdapter:
 
         self._opened = False
         self._closed = False
-        self._nodes: Nodes | None = None
-        self._links: Links | None = None
-        self._controls: Controls | None = None
-        self._subcatchments: Subcatchments | None = None
-        self._gages: Gages | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def open(self, plugin_lib: PathLike | None = None) -> None:
+    def open(self, plugin_lib: PathLike | None = None, *, lenient: bool = False) -> None:
         """Open the input file and allocate the engine handle.
+
+        Transitions the engine C{CREATED -> OPENED}. The v6 engine raises
+        on failure rather than returning a status code.
+
+        With C{lenient=True} the engine records post-parse validation errors
+        (undefined objects, missing curves, bad references) but still leaves
+        the model C{OPENED} and inspectable instead of hard-failing; read the
+        accumulated messages via L{open_errors} / L{open_warnings}. This is a
+        B{pre-flight validation} aid for training harnesses that
+        programmatically generate or perturb C{.inp} models (CIP design search,
+        domain randomization): open a candidate leniently, inspect the errors,
+        and skip/report broken candidates instead of crashing the rollout.
+        Per the engine contract a lenient open is B{not} runnable — a model to
+        be stepped must be opened strictly (the default), so the env run path
+        leaves C{lenient=False}.
 
         @param plugin_lib: Optional path to a plugin shared library.
         @type plugin_lib: str, C{os.PathLike}, or C{None}
-        @raise RuntimeError: If the underlying C API returns a non-zero
-            code.
+        @param lenient: If C{True}, enable permissive open (see above).
+            Defaults to C{False} (strict).
+        @type lenient: bool
+        @raise openswmm.engine.EngineError: On C API failure.
         """
         if self._opened:
             return
-        rc = self._solver.open() if plugin_lib is None else self._solver.open(str(plugin_lib))
-        if rc != 0:
-            raise RuntimeError(f"Solver.open returned non-zero code {rc}")
+        if lenient:
+            self._solver.set_lenient_open(True)
+        if plugin_lib is None:
+            self._solver.open()
+        else:
+            self._solver.open(str(plugin_lib))
         self._opened = True
 
     def initialize(self) -> None:
-        """Initialize the simulation (transitions C{OPENED} -> C{RUNNING}).
+        """Initialize the simulation (transitions C{OPENED -> INITIALIZED}).
 
-        @raise RuntimeError: If the underlying C API returns a non-zero
-            code.
+        Applies initial conditions. The simulation is not yet stepping;
+        call L{start} to transition to C{RUNNING}.
+
+        @raise openswmm.engine.EngineError: On C API failure.
         """
-        rc = self._solver.initialize()
-        if rc != 0:
-            raise RuntimeError(f"Solver.initialize returned non-zero code {rc}")
+        self._solver.initialize()
 
-    def step(self) -> int:
+    def start(self, save_results: bool = True) -> None:
+        """Start the simulation (transitions C{INITIALIZED -> RUNNING}).
+
+        Must be called after L{initialize} and before L{step}/L{stride};
+        the engine guards C{step()} on the C{RUNNING} state.
+
+        @param save_results: If C{True}, write binary output to the
+            C{.out} file. When C{False} the file is not produced.
+        @type save_results: bool
+        @raise openswmm.engine.EngineError: On C API failure.
+        """
+        self._solver.start(save_results)
+
+    def step(self) -> timedelta:
         """Advance one routing timestep.
 
-        @return: Engine return code (C{0} on success).
-        @rtype: int
+        @return: Elapsed simulation time after the step. C{timedelta(0)}
+            indicates the simulation has ended.
+        @rtype: datetime.timedelta
+        @raise openswmm.engine.EngineError: On C API failure.
         """
         return self._solver.step()
 
-    def stride(self, n_steps: int) -> int:
+    def stride(self, n_steps: int) -> timedelta:
         """Advance C{n_steps} routing timesteps in one call.
 
         @param n_steps: Number of timesteps to advance.
         @type n_steps: int
-        @return: Engine return code (C{0} on success).
-        @rtype: int
+        @return: Elapsed simulation time after the last step taken.
+            C{timedelta(0)} once the simulation has ended.
+        @rtype: datetime.timedelta
+        @raise openswmm.engine.EngineError: On C API failure.
         """
         return self._solver.stride(n_steps)
 
@@ -201,6 +324,54 @@ class SolverAdapter:
             self._opened = False
 
     # ------------------------------------------------------------------
+    # Deterministic state seeding
+    # ------------------------------------------------------------------
+
+    def seed_hotstart(
+        self,
+        path,
+        node_depths: dict[str, float] | None = None,
+        node_heads: dict[str, float] | None = None,
+        link_depths: dict[str, float] | None = None,
+        link_flows: dict[str, float] | None = None,
+        subcatchment_runoffs: dict[str, float] | None = None,
+    ) -> None:
+        """Apply a hot-start file, optionally overriding element states.
+
+        Opens the hot-start file at C{path}, overrides individual element
+        states from the supplied id→value maps (surfacing the engine's
+        hot-start state setters), and applies the result to this adapter's
+        solver. Enables deterministic, reproducible episode initial
+        conditions for RL.
+
+        All values are in the model's project units (see L{unit_system}):
+        node depths/heads in project length units; link depths in project
+        length units; link flows and subcatchment runoff in project flow
+        units.
+
+        @param path: Hot-start file to open as the seed baseline.
+        @type path: str or os.PathLike
+        @param node_depths: Map of node id → depth override.
+        @param node_heads: Map of node id → head override.
+        @param link_depths: Map of link id → depth override.
+        @param link_flows: Map of link id → flow override.
+        @param subcatchment_runoffs: Map of subcatchment id → runoff override.
+        @raise openswmm.engine.EngineError: On C API failure.
+        """
+        hotstart = HotStart.open(str(path))
+        for nid, v in (node_depths or {}).items():
+            hotstart.set_node_depth(nid, float(v))
+        for nid, v in (node_heads or {}).items():
+            hotstart.set_node_head(nid, float(v))
+        for lid, v in (link_depths or {}).items():
+            hotstart.set_link_depth(lid, float(v))
+        for lid, v in (link_flows or {}).items():
+            hotstart.set_link_flow(lid, float(v))
+        for sid, v in (subcatchment_runoffs or {}).items():
+            hotstart.set_subcatchment_runoff(sid, float(v))
+        hotstart.apply(self._solver)
+
+    # ------------------------------------------------------------------
     # State
     # ------------------------------------------------------------------
 
@@ -221,12 +392,79 @@ class SolverAdapter:
         return self._solver.state == EngineState.RUNNING
 
     @property
+    def inp_path(self) -> str:
+        """The model file this adapter opens.
+
+        @rtype: str
+        """
+        return self._inp
+
+    @property
     def elapsed(self) -> float:
         """Elapsed simulation time in days.
 
+        The v6 engine exposes elapsed time as a :class:`datetime.timedelta`;
+        callers in this package expect decimal days, so convert here.
+
         @rtype: float
         """
-        return self._solver.elapsed
+        e = self._solver.elapsed
+        if isinstance(e, timedelta):
+            return e.total_seconds() / 86400.0
+        return e
+
+    @property
+    def flow_units(self) -> str:
+        """The model's flow-unit token, e.g. C{"CFS"} / C{"CMS"}.
+
+        Returned as the upper-case token name. C{Solver.flow_units} is a
+        probed requirement (see L{require_engine_capabilities}), so there
+        is no fallback path.
+
+        @rtype: str
+        """
+        fu = self._solver.flow_units
+        # FlowUnits enum -> its member name (e.g. "CFS").
+        return getattr(fu, "name", str(fu)).upper()
+
+    @property
+    def unit_system(self) -> str:
+        """C{"US"} (CFS/GPM/MGD) or C{"SI"} (CMS/LPS/MLD).
+
+        Every engine getter returns project units, so an env that scales
+        observations or rewards by physical magnitudes must know which
+        system is active. Recorded at L{reset} so a CMS model never
+        silently reuses CFS-tuned scaling.
+
+        @rtype: str
+        """
+        return str(self._solver.unit_system)
+
+    @property
+    def open_errors(self) -> list[str]:
+        """Post-parse validation errors accumulated during L{open}.
+
+        Populated primarily after a lenient open (L{open}C{(lenient=True)});
+        a strict open that succeeds leaves this empty. Each entry is a
+        human-readable message string. Surfaces the engine's
+        C{Solver.open_errors} accumulator so a training harness can report or
+        reject a broken candidate model.
+
+        @rtype: list[str]
+        """
+        return list(self._solver.open_errors)
+
+    @property
+    def open_warnings(self) -> list[str]:
+        """Warnings accumulated during L{open}.
+
+        Populated on either a strict or a lenient open. Each entry is a
+        human-readable message string. Surfaces the engine's
+        C{Solver.open_warnings} accumulator.
+
+        @rtype: list[str]
+        """
+        return list(self._solver.open_warnings)
 
     @property
     def start_time(self) -> float:
@@ -234,7 +472,7 @@ class SolverAdapter:
 
         @rtype: float
         """
-        return self._solver.get_start_time()
+        return _to_oadate(self._solver.start_datetime)
 
     @property
     def end_time(self) -> float:
@@ -242,7 +480,7 @@ class SolverAdapter:
 
         @rtype: float
         """
-        return self._solver.get_end_time()
+        return _to_oadate(self._solver.end_datetime)
 
     @property
     def current_time(self) -> float:
@@ -250,69 +488,104 @@ class SolverAdapter:
 
         @rtype: float
         """
-        return self._solver.get_current_time()
-
-    # ------------------------------------------------------------------
-    # Accessors (lazy, cached)
-    # ------------------------------------------------------------------
+        return _to_oadate(self._solver.current_datetime)
 
     @property
     def solver(self) -> Solver:
-        """Underlying real L{openswmm.engine.Solver}. Use sparingly.
+        """Underlying real L{openswmm.engine.Solver}.
+
+        For operations that are not a single catalog field — cross-sections,
+        storage curves, hydrographs, LID usages, heat / water-age sources.
+        Prefer L{read} / L{write} / L{call} for anything addressable by a
+        catalog path, and L{optional_module} for the optional modules.
 
         @rtype: L{openswmm.engine.Solver}
         """
         return self._solver
 
-    @property
-    def nodes(self) -> Nodes:
-        """Lazily-constructed, cached L{openswmm.engine.Nodes} accessor.
+    def get_option(self, name: str) -> str:
+        """Read one C{[OPTIONS]} entry from the open model.
 
-        @rtype: L{openswmm.engine.Nodes}
+        Thin pass-through to the engine's C{Solver.options} mapping, the
+        read counterpart of L{set_option}. Used to answer model-level
+        questions a caller cannot otherwise ask — notably which router is
+        active (C{get_option("ROUTING_MODEL")}), which decides whether the
+        Preissmann-slot link readers can produce a signal at all. Call
+        after L{open}.
+
+        @param name: Option keyword as it appears in C{[OPTIONS]}.
+        @type name: str
+        @return: The option's value in its string form.
+        @rtype: str
+        @raise KeyError: If the engine mapping does not carry C{name}.
+        @raise openswmm.engine.EngineError: If the engine rejects the key.
         """
-        if self._nodes is None:
-            self._nodes = Nodes(self._solver)
-        return self._nodes
+        return str(self._solver.options[name])
 
-    @property
-    def links(self) -> Links:
-        """Lazily-constructed, cached L{openswmm.engine.Links} accessor.
+    def set_option(self, name: str, value) -> None:
+        """Set one C{[OPTIONS]} entry on the open model (pre-initialize).
 
-        @rtype: L{openswmm.engine.Links}
+        Thin pass-through to the engine's C{Solver.options} mapping —
+        e.g. C{set_option("IGNORE_2D", "YES")} runs a meshed model
+        1D-only for cheap training episodes. Call after L{open} and
+        before L{initialize}.
+
+        @param name: Option keyword as it appears in C{[OPTIONS]}.
+        @type name: str
+        @param value: Option value; converted to its string form by the
+            engine mapping.
+        @raise openswmm.engine.EngineError: If the engine rejects the
+            key or value.
         """
-        if self._links is None:
-            self._links = Links(self._solver)
-        return self._links
+        self._solver.options[name] = value
 
-    @property
-    def controls(self) -> Controls:
-        """Lazily-constructed, cached L{openswmm.engine.Controls} accessor.
+    # -- Catalog field access ------------------------------------------------
+    #
+    # Any element property or service method the engine exposes, addressed by
+    # its catalog path. Observation collectors, actuators, design factories and
+    # reward terms use these, so a new engine field is observable/actuatable
+    # without new adapter code.
 
-        @rtype: L{openswmm.engine.Controls}
+    def index(self, kind: str, element_id: str) -> int:
+        """Engine index of element C{element_id} of catalog kind C{kind} (C{"node"}, ...).
+
+        @rtype: int
         """
-        if self._controls is None:
-            self._controls = Controls(self._solver)
-        return self._controls
+        collection = _catalog.targets()[kind]["collection"]
+        return int(_catalog.resolve(self._solver, collection, None).get_index(element_id))
 
-    @property
-    def subcatchments(self) -> Subcatchments:
-        """Lazily-constructed, cached L{openswmm.engine.Subcatchments} accessor.
+    def read(self, path: str, idx: int | str) -> Any:
+        """Value of field C{path} (e.g. C{"link.stats.max_flow"}) on element C{idx}."""
+        entry = _catalog.lookup(path)
+        return getattr(_catalog.resolve(self._solver, entry["target"], idx), entry["name"])
 
-        @rtype: L{openswmm.engine.Subcatchments}
+    def read_all(self, path: str):
+        """Whole-collection array for C{path} when the engine has a bulk getter, else C{None}.
+
+        @rtype: numpy.ndarray or None
         """
-        if self._subcatchments is None:
-            self._subcatchments = Subcatchments(self._solver)
-        return self._subcatchments
+        bulk = _catalog.lookup(path).get("bulk")
+        if bulk is None:
+            return None
+        target, _, name = bulk.rpartition(".")
+        return getattr(_catalog.resolve(self._solver, target, None), name)
 
-    @property
-    def gages(self) -> Gages:
-        """Lazily-constructed, cached L{openswmm.engine.Gages} accessor.
+    def call(self, path: str, *args: Any, **kwargs: Any) -> Any:
+        """Call catalog method C{path} on its service (e.g. C{"surface2d.get_depths"}).
 
-        @rtype: L{openswmm.engine.Gages}
+        @rtype: Any
         """
-        if self._gages is None:
-            self._gages = Gages(self._solver)
-        return self._gages
+        entry = _catalog.lookup(path)
+        return getattr(_catalog.resolve(self._solver, entry["target"], None), entry["name"])(
+            *args, **kwargs
+        )
+
+    def write(self, path: str, idx: int | str, value: Any) -> None:
+        """Set field C{path} on element C{idx} (the field must be writable)."""
+        entry = _catalog.lookup(path)
+        if entry.get("access") != "rw":
+            raise ValueError(f"{path!r} is read-only")
+        setattr(_catalog.resolve(self._solver, entry["target"], idx), entry["name"], value)
 
     # ------------------------------------------------------------------
     # Context manager
@@ -321,6 +594,7 @@ class SolverAdapter:
     def __enter__(self) -> SolverAdapter:
         self.open()
         self.initialize()
+        self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

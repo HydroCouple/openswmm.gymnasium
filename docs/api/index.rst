@@ -12,3 +12,4 @@ API Reference
    wrappers
    viz
    engine
+   spec

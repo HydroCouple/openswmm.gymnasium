@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 L{SwmmJointCIPRTCEnv} — full hybrid Gymnasium environment.
 
@@ -16,7 +32,7 @@ the design every step.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -30,7 +46,7 @@ import numpy as np
 from gymnasium import spaces
 from openswmm.engine import EngineState
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, require_for
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, RewardTerm
 from openswmm_gymnasium.spaces.design import DesignActionFactory
@@ -64,6 +80,7 @@ class SwmmJointCIPRTCEnv(gym.Env):
         max_episode_steps: int | None = None,
         rpt_path: PathLike | None = None,
         out_path: PathLike | None = None,
+        event: Any | None = None,
     ) -> None:
         """
         @param inp_path: Path to the SWMM input file.
@@ -85,6 +102,9 @@ class SwmmJointCIPRTCEnv(gym.Env):
         @type rpt_path: str, os.PathLike, or C{None}
         @param out_path: Optional binary output file path.
         @type out_path: str, os.PathLike, or C{None}
+        @param event: Optional storm applied to every episode before C{initialize}
+            (its window and rain; L{RainEvent<openswmm_gymnasium.events.RainEvent>}).
+        @type event: L{RainEvent<openswmm_gymnasium.events.RainEvent>} or C{None}
         @raise ValueError: If C{design_factories} is empty,
             C{observation_builder} is C{None}, or
             C{control_interval_steps < 1}.
@@ -101,6 +121,7 @@ class SwmmJointCIPRTCEnv(gym.Env):
         self._inp_path = str(inp_path)
         self._rpt_path = None if rpt_path is None else str(rpt_path)
         self._out_path = None if out_path is None else str(out_path)
+        self._event = event
         self._design_factories: list[DesignActionFactory] = list(design_factories)
         self._runtime_factories: list[OrificeSetting] = list(runtime_factories or [])
         self._observation_builder = observation_builder
@@ -124,6 +145,13 @@ class SwmmJointCIPRTCEnv(gym.Env):
             }
         )
         self.observation_space = self._observation_builder.space()
+        # A partial engine build fails here, naming what this configuration needs.
+        require_for(
+            self._observation_builder,
+            *self._design_factories,
+            *self._runtime_factories,
+            *self._reward_terms,
+        )
 
         # ---- Per-episode state ---------------------------------------
         self._adapter: SolverAdapter | None = None
@@ -172,7 +200,10 @@ class SwmmJointCIPRTCEnv(gym.Env):
         for f in self._design_factories:
             f.bind(self._adapter)
             f.apply(self._adapter, design_action[f.name])
+        if self._event is not None:
+            self._event.apply(self._adapter)
         self._adapter.initialize()
+        self._adapter.start()
 
         # Bind runtime + observation + rewards against the initialized
         # solver.
@@ -220,6 +251,10 @@ class SwmmJointCIPRTCEnv(gym.Env):
         elapsed_days = self._adapter.elapsed
         dt_seconds = (elapsed_days - self._prev_elapsed_days) * _SECONDS_PER_DAY
         self._prev_elapsed_days = elapsed_days
+        # The engine resets ``elapsed`` to 0 on the final step that ends the run;
+        # the resulting negative dt would flip reward-term signs, so drop it.
+        if dt_seconds < 0.0:
+            dt_seconds = 0.0
 
         components: dict[str, float] = {}
         cost = 0.0

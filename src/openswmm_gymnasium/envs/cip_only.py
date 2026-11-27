@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 L{SwmmCIPEnv} — design-only Gymnasium environment.
 
@@ -17,13 +33,13 @@ Lifecycle per env step:
      cumulative reward, C{terminated=True}, C{truncated=False}, and
      an C{info} dict with per-term breakdowns.
 
-The action space is C{spaces.Dict({"design": Dict({...}),
-"runtime": Dict({})})} — the runtime portion is empty per the plan §3
-contract.
+The action space is C{spaces.Dict({"design": Dict({...})})}. Gymnasium
+forbids empty Dict spaces, so the empty C{"runtime"} half of the
+design/runtime contract is omitted.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -36,7 +52,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from openswmm_gymnasium._engine import SolverAdapter
+from openswmm_gymnasium._engine import SolverAdapter, require_for
 from openswmm_gymnasium.observations import ObservationBuilder
 from openswmm_gymnasium.rewards import FloodingVolume, RewardTerm
 from openswmm_gymnasium.spaces.design import DesignActionFactory
@@ -47,12 +63,11 @@ _SECONDS_PER_DAY = 86400.0
 
 
 class SwmmCIPEnv(gym.Env):
-    """Single-step CIP environment for design-only optimisation.
+    """Single-step CIP environment for design-only optimization.
 
     @ivar metadata: Gymnasium metadata (no rendering; viz §5.5 consumes
         recorded trajectories).
-    @ivar action_space: Dict with non-empty C{"design"} and empty
-        C{"runtime"}.
+    @ivar action_space: Dict with the C{"design"} half.
     @ivar observation_space: Flat Box from the supplied observation
         builder.
     """
@@ -68,6 +83,7 @@ class SwmmCIPEnv(gym.Env):
         reward_terms: Sequence[RewardTerm] | None = None,
         rpt_path: PathLike | None = None,
         out_path: PathLike | None = None,
+        event: Any | None = None,
     ) -> None:
         """
         @param inp_path: Path to the SWMM input file driving the
@@ -86,6 +102,9 @@ class SwmmCIPEnv(gym.Env):
         @type rpt_path: str, os.PathLike, or C{None}
         @param out_path: Optional binary output file path.
         @type out_path: str, os.PathLike, or C{None}
+        @param event: Optional storm applied to every episode before C{initialize}
+            (its window and rain; L{RainEvent<openswmm_gymnasium.events.RainEvent>}).
+        @type event: L{RainEvent<openswmm_gymnasium.events.RainEvent>} or C{None}
         @raise ValueError: If C{design_factories} is empty or
             C{observation_builder} is C{None}.
         """
@@ -99,6 +118,7 @@ class SwmmCIPEnv(gym.Env):
         self._inp_path = str(inp_path)
         self._rpt_path = None if rpt_path is None else str(rpt_path)
         self._out_path = None if out_path is None else str(out_path)
+        self._event = event
         self._design_factories: list[DesignActionFactory] = list(design_factories)
         self._observation_builder = observation_builder
         self._reward_terms: list[RewardTerm] = list(
@@ -109,13 +129,12 @@ class SwmmCIPEnv(gym.Env):
         design_subspaces: dict[str, spaces.Space] = {
             f.name: f.space for f in self._design_factories
         }
-        self.action_space = spaces.Dict(
-            {
-                "design": spaces.Dict(design_subspaces),
-                "runtime": spaces.Dict({}),  # plan §3 contract; empty here
-            }
-        )
+        # Gymnasium forbids empty Dict spaces, so the empty "runtime" half
+        # is omitted; ``step`` reads only ``action["design"]``.
+        self.action_space = spaces.Dict({"design": spaces.Dict(design_subspaces)})
         self.observation_space = self._observation_builder.space()
+        # A partial engine build fails here, naming what this configuration needs.
+        require_for(self._observation_builder, *self._design_factories, *self._reward_terms)
 
         # ---- Per-episode state ---------------------------------------
         self._adapter: SolverAdapter | None = None
@@ -167,7 +186,10 @@ class SwmmCIPEnv(gym.Env):
         for f in self._design_factories:
             f.bind(adapter)
             f.apply(adapter, design[f.name])
+        if self._event is not None:
+            self._event.apply(adapter)
         adapter.initialize()
+        adapter.start()
 
         # Bind observation + reward against the initialized solver.
         self._observation_builder.bind(adapter)
@@ -184,6 +206,10 @@ class SwmmCIPEnv(gym.Env):
             elapsed = adapter.elapsed
             dt_seconds = (elapsed - prev_elapsed_days) * _SECONDS_PER_DAY
             prev_elapsed_days = elapsed
+            # The engine resets ``elapsed`` to 0 on the final step; the negative
+            # dt would flip reward-term signs, so drop it.
+            if dt_seconds < 0.0:
+                dt_seconds = 0.0
             for term in self._reward_terms:
                 c = float(term.step(adapter, dt_seconds))
                 components[term.name] += c

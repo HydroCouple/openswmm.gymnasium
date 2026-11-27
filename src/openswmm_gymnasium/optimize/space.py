@@ -1,0 +1,285 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Search space of an optimizable env config.
+
+The decision vector of a study is the concatenation of every design
+factory's flattened action (C{cip}/C{joint} envs) or of every tunable
+controller parameter (C{market}/C{schedule}/C{control_curve} envs). Each
+group is one L{DesignDimension}.
+
+@author: Caleb Buahin
+@copyright: Copyright (c) 2026 Caleb Buahin
+@license: Apache-2.0
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from openswmm_gymnasium.spec.config import EnvConfig
+from openswmm_gymnasium.spec.errors import ErrorCode, SpecError
+
+#: Env types whose single step runs a whole episode under a tunable controller.
+POLICY_ENV_TYPES = ("market", "schedule", "control_curve")
+
+
+@dataclass(frozen=True)
+class DesignDimension:
+    """One design factory's (or controller parameter's) slice of the search space.
+
+    @ivar key: Action-space key (the factory's C{name} param, or the parameter label).
+    @ivar labels: Per-component labels, C{"<kind>:<element_id>"}.
+    @ivar low: Lower bound: a scalar broadcast across components, or a per-component tuple.
+    @ivar high: Upper bound, scalar or per-component like C{low}.
+    @ivar choices: For a discrete dimension, the values each component chooses from;
+        its components then lie in C{[0, len(choices))} and pick by integer part.
+
+    Tuple bounds allow different physical ranges for each component, such as
+    storage C{(a,b,c)} or RDII C{(R,dmax,drecov,dinit)}.
+    """
+
+    key: str
+    labels: tuple[str, ...]
+    low: float | tuple[float, ...]
+    high: float | tuple[float, ...]
+    choices: tuple[float, ...] | None = None
+
+    @property
+    def size(self) -> int:
+        """Number of components in this dimension group.
+
+        @rtype: int
+        """
+        return len(self.labels)
+
+
+def _market_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
+    """One single-component dimension per tunable market-controller parameter."""
+    from openswmm_gymnasium.config import MarketConfig
+    from openswmm_gymnasium.spaces import MarketPolicySpace
+
+    market = MarketConfig.from_dict(env_config.market_config)
+    market.validate()
+    bounds = (
+        {k: tuple(v) for k, v in env_config.policy_bounds.items()}
+        if env_config.policy_bounds
+        else None
+    )
+    space = MarketPolicySpace.from_config(market, bounds=bounds, tune_full=env_config.tune_full)
+    return [
+        DesignDimension(key=p.label, labels=(p.label,), low=p.low, high=p.high)
+        for p in space.params
+    ]
+
+
+def _schedule_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
+    """One single-component dimension per scheduled structure setting."""
+    from openswmm_gymnasium.spaces import SchedulePolicySpace
+
+    lo, hi = env_config.schedule_bounds or [0.0, 1.0]
+    space = SchedulePolicySpace(
+        env_config.structure_ids, env_config.n_points, low=float(lo), high=float(hi)
+    )
+    return [
+        DesignDimension(
+            key=label, labels=(label,), low=float(space.low[i]), high=float(space.high[i])
+        )
+        for i, label in enumerate(space.labels)
+    ]
+
+
+def _control_curve_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
+    """One dimension per control-curve knot setting, labeled C{control_curve/<link>/y[<k>]}."""
+    from openswmm_gymnasium.spaces import ControlCurvePolicySpace
+
+    space = ControlCurvePolicySpace.from_params(env_config.policy_factory.params)
+    low, high = space.low, space.high
+    return [
+        DesignDimension(key=label, labels=(label,), low=float(low[i]), high=float(high[i]))
+        for i, label in enumerate(space.labels)
+    ]
+
+
+def design_dimensions(env_config: EnvConfig) -> list[DesignDimension]:
+    """Labeled search-space dimensions of an env config, in config order.
+
+    For C{"market"}/C{"schedule"}/C{"control_curve"} configs the dimensions
+    come from the controller policy space; otherwise from the design factories.
+
+    @param env_config: Config whose factories / policy span the space.
+    @type env_config: L{EnvConfig}
+    @rtype: list of L{DesignDimension}
+    @raise SpecError: C{VALIDATION_ERROR} when the config has no searchable
+        static factory (no design_factory and no policy_factory).
+    """
+    if env_config.env_type == "market":
+        return _market_dimensions(env_config)
+    if env_config.env_type == "schedule":
+        return _schedule_dimensions(env_config)
+    if env_config.env_type == "control_curve":
+        return _control_curve_dimensions(env_config)
+    if not env_config.design_factories:
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] Optimization requires an env config "
+            "with a searchable static factory: design_factories (env_type 'cip' "
+            "or 'joint') or a policy_factory (env_type 'control_curve')."
+        )
+    dims: list[DesignDimension] = []
+    for spec in env_config.design_factories:
+        # Constructing the factory needs no solver (its Box is built in __init__) and gives
+        # the true flat shape and per-component bounds, including factories whose
+        # component count and bounds vary (storage coeffs, LID sizing+type, RDII R+IA).
+        factory = spec.construct()
+        space = factory.space
+        lo = np.asarray(space.low, dtype=float).ravel()
+        hi = np.asarray(space.high, dtype=float).ravel()
+        size = int(lo.shape[0])
+        params = spec.params
+        ids = (
+            params.get("link_ids")
+            or params.get("node_ids")
+            or params.get("subcatch_ids")
+            or params.get("ids")
+            or []
+        )
+        if len(ids) == size:
+            labels = tuple(f"{spec.kind}:{eid}" for eid in ids)
+        else:
+            labels = tuple(f"{spec.kind}[{i}]" for i in range(size))
+        dims.append(
+            DesignDimension(
+                key=factory.name,
+                labels=labels,
+                low=tuple(lo.tolist()),
+                high=tuple(hi.tolist()),
+                choices=getattr(factory, "choices", None),
+            )
+        )
+    return dims
+
+
+def flat_bounds(dims: list[DesignDimension]) -> tuple[np.ndarray, np.ndarray]:
+    """Flat C{(low, high)} bound vectors across all dimensions.
+
+    @rtype: tuple of two L{numpy.ndarray}
+    """
+    low = np.concatenate([np.broadcast_to(np.asarray(d.low, dtype=float), (d.size,)) for d in dims])
+    high = np.concatenate(
+        [np.broadcast_to(np.asarray(d.high, dtype=float), (d.size,)) for d in dims]
+    )
+    return low, high
+
+
+def split_vector(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, np.ndarray]:
+    """Split a flat decision vector into per-dimension float64 arrays keyed by C{key}.
+
+    @rtype: dict
+    """
+    payload: dict[str, np.ndarray] = {}
+    offset = 0
+    for dim in dims:
+        payload[dim.key] = np.asarray(vector[offset : offset + dim.size], dtype=np.float64)
+        offset += dim.size
+    return payload
+
+
+def decision_values(dims: list[DesignDimension], vector: np.ndarray) -> dict[str, np.ndarray]:
+    """The decisions a flat vector stands for, by key: L{split_vector}, with a discrete
+    dimension's components as the values they choose.
+
+    What C{evaluations.jsonl} records and L{join_decisions} reads back.
+
+    @rtype: dict
+    """
+    from openswmm_gymnasium.spaces.design import choice_indices
+
+    values = split_vector(dims, vector)
+    for dim in dims:
+        if dim.choices is not None:
+            picked = choice_indices(values[dim.key], len(dim.choices))
+            values[dim.key] = np.asarray(dim.choices, dtype=np.float64)[picked]
+    return values
+
+
+def join_decisions(dims: list[DesignDimension], decisions: dict[str, Any]) -> np.ndarray:
+    """The flat decision vector for decisions keyed by dimension C{key}: the inverse of
+    L{decision_values}, and the shape of an C{evaluations.jsonl} record's C{decisions}.
+    A discrete dimension's value becomes the middle of its choice's index interval.
+
+    @raise SpecError: C{VALIDATION_ERROR} when a key is missing or unknown, a
+        dimension has the wrong number of values, or a value is not one of its choices.
+    @rtype: L{numpy.ndarray}
+    """
+    keys = [d.key for d in dims]
+    unknown = sorted(set(decisions) - set(keys))
+    missing = [k for k in keys if k not in decisions]
+    if unknown or missing:
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] Decisions must have exactly the keys "
+            f"{keys}; missing {missing}, unknown {unknown}."
+        )
+    parts = []
+    for dim in dims:
+        values = np.atleast_1d(np.asarray(decisions[dim.key], dtype=float))
+        if values.shape != (dim.size,):
+            raise SpecError(
+                f"[{ErrorCode.VALIDATION_ERROR}] '{dim.key}' takes {dim.size} value(s) "
+                f"({', '.join(dim.labels)}), not {values.size}."
+            )
+        if dim.choices is not None:
+            index = {v: i for i, v in enumerate(dim.choices)}
+            wrong = [float(v) for v in values if float(v) not in index]
+            if wrong:
+                raise SpecError(
+                    f"[{ErrorCode.VALIDATION_ERROR}] '{dim.key}' chooses from "
+                    f"{list(dim.choices)}; {wrong} is not one of them."
+                )
+            values = np.array([index[float(v)] + 0.5 for v in values])
+        parts.append(values)
+    return np.concatenate(parts)
+
+
+def objective_directions(env_config: EnvConfig) -> dict[str, str]:
+    """Objective name to C{"minimize"}/C{"maximize"}: the reward terms a study optimizes.
+
+    Every term in config order, or the terms C{env_config.objectives} names, in its
+    order. An empty config means the env default, a single all-nodes
+    C{flooding_volume} cost.
+
+    @raise SpecError: C{VALIDATION_ERROR} when an objective names no reward term.
+    @rtype: dict
+    """
+    if not env_config.reward_terms:
+        directions = {"flooding_volume": "minimize"}
+    else:
+        directions = {}
+        for spec in env_config.reward_terms:
+            term = spec.construct()
+            directions[term.name] = term.direction
+    if env_config.objectives is None:
+        return directions
+    unknown = [n for n in env_config.objectives if n not in directions]
+    if unknown:
+        raise SpecError(
+            f"[{ErrorCode.VALIDATION_ERROR}] objectives {unknown} name no reward term; "
+            f"the terms are {list(directions)}."
+        )
+    return {n: directions[n] for n in env_config.objectives}

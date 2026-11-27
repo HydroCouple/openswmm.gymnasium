@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 b01 TwinTank benchmark scenario.
 
@@ -5,7 +21,7 @@ Plan §6A: two storage tanks in series with a controllable side orifice
 between them, draining through a conduit to an outfall. A 2-hour
 triangular design storm hits the upstream tank's subcatchment.
 
-Competing objectives (all framed as cost-to-minimise for the env's
+Competing objectives (all framed as cost-to-minimize for the env's
 internal aggregation; sign flipping handled per term direction):
 
   - C{flooding_volume} — overflow at C{T1} (upstream).
@@ -19,12 +35,12 @@ Three Gymnasium IDs are registered:
     setting; design fixed at the C{.inp} defaults.
   - C{OpenSWMM/TwinTank-Joint-v0} — CIP (tank max-depths) + RTC.
   - C{OpenSWMM/TwinTank-MORTC-v0} — multi-objective RTC variant
-    returning vector reward and per-episode normalised HV in
+    returning vector reward and per-episode normalized HV in
     C{info["mo_score"]}.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -58,7 +74,7 @@ CONTROLLED_LINK = "ORIF"
 PEAK_LINK = "OUT"
 FLOOD_NODE = "T1"
 
-# Reference / ideal points for normalised HV. Tunable per scenario;
+# Reference / ideal points for normalized HV. Tunable per scenario;
 # these are deliberately loose so a default run lands in [0, 1].
 MO_IDEAL = [0.0, 0.0, 0.0]  # zero flooding, zero peak, zero churn
 MO_REF = [1.0e5, 50.0, 100.0]  # generous nadir; refine after evaluation runs

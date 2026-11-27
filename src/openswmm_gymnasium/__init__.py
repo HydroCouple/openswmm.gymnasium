@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 openswmm.gymnasium
 ==================
@@ -6,13 +22,13 @@ Farama Gymnasium environments for joint CIP + RTC optimization of SWMM
 networks, backed by the handle-based, thread-safe C{openswmm.engine} v6
 Python API.
 
-See L{docs/IMPLEMENTATION_PLAN} for the authoritative architecture and
-scope. Environment IDs are registered at package import time so
+The architecture page of the documentation describes the package layout.
+Environment IDs are registered at package import time so
 C{gymnasium.make("OpenSWMM/...")} works without further setup.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 import gymnasium as _gym
@@ -24,6 +40,7 @@ from openswmm_gymnasium._version import __version__
 # ``gymnasium.make("OpenSWMM/...")`` for the canonical construction path.
 from openswmm_gymnasium.envs import (
     SwmmCIPEnv,
+    SwmmControlEnv,
     SwmmJointCIPRTCEnv,
     SwmmMORTCEnv,
     SwmmRTCEnv,
@@ -68,4 +85,5 @@ __all__ = [
     "SwmmCIPEnv",
     "SwmmJointCIPRTCEnv",
     "SwmmMORTCEnv",
+    "SwmmControlEnv",
 ]

@@ -1,3 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Integration verification for plan §10 P2.
 
 This wires up the SwmmRTCEnv with B{five reward terms} and B{ten
@@ -6,12 +22,12 @@ P2 code path in one end-to-end episode.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
 
-import pytest
+import unittest
 
 from openswmm_gymnasium.envs import SwmmRTCEnv
 from openswmm_gymnasium.observations import ObservationBuilder
@@ -23,6 +39,7 @@ from openswmm_gymnasium.rewards import (
     SetpointSmoothness,
 )
 from openswmm_gymnasium.spaces.runtime import OrificeSetting
+from tests.unit._base import BaseEngineTest
 
 
 def _ten_feature_observation_builder() -> ObservationBuilder:
@@ -53,23 +70,22 @@ def _five_reward_terms() -> list:
     ]
 
 
-@pytest.mark.integration
-class TestP2EndToEnd:
-    def test_observation_shape_is_ten(self, minimal_inp):
+class TestP2EndToEnd(BaseEngineTest):
+    def test_observation_shape_is_ten(self):
         env = SwmmRTCEnv(
-            minimal_inp,
+            self.minimal_inp,
             runtime_factories=[OrificeSetting(["C1"])],
             observation_builder=_ten_feature_observation_builder(),
             reward_terms=_five_reward_terms(),
         )
-        assert env.observation_space.shape == (10,)
+        self.assertEqual(env.observation_space.shape, (10,))
         obs, info = env.reset(seed=0)
-        assert obs.shape == (10,)
+        self.assertEqual(obs.shape, (10,))
         env.close()
 
-    def test_five_reward_components_reported(self, minimal_inp):
+    def test_five_reward_components_reported(self):
         env = SwmmRTCEnv(
-            minimal_inp,
+            self.minimal_inp,
             runtime_factories=[OrificeSetting(["C1"])],
             observation_builder=_ten_feature_observation_builder(),
             reward_terms=_five_reward_terms(),
@@ -77,18 +93,21 @@ class TestP2EndToEnd:
         env.reset(seed=0)
         _, _, _, _, info = env.step(env.action_space.sample())
         components = info["reward_components"]
-        assert set(components.keys()) == {
-            "flooding_volume",
-            "cso_volume",
-            "peak_outflow",
-            "reliability_margin",
-            "setpoint_smoothness",
-        }
+        self.assertEqual(
+            set(components.keys()),
+            {
+                "flooding_volume",
+                "cso_volume",
+                "peak_outflow",
+                "reliability_margin",
+                "setpoint_smoothness",
+            },
+        )
         env.close()
 
-    def test_full_episode_runs_with_mixed_directions(self, minimal_inp):
+    def test_full_episode_runs_with_mixed_directions(self):
         env = SwmmRTCEnv(
-            minimal_inp,
+            self.minimal_inp,
             runtime_factories=[OrificeSetting(["C1"])],
             observation_builder=_ten_feature_observation_builder(),
             reward_terms=_five_reward_terms(),
@@ -104,12 +123,16 @@ class TestP2EndToEnd:
             if terminated or truncated:
                 break
             if steps > 10_000:
-                pytest.fail("Episode did not terminate within safety limit")
+                self.fail("Episode did not terminate within safety limit")
         # minimal.inp is a dry-channel fixture → no flooding, no CSO.
-        assert cumulative_components["flooding_volume"] == pytest.approx(0.0, abs=1e-6)
-        assert cumulative_components["cso_volume"] == pytest.approx(0.0, abs=1e-6)
+        self.assertAlmostEqual(cumulative_components["flooding_volume"], 0.0, delta=1e-6)
+        self.assertAlmostEqual(cumulative_components["cso_volume"], 0.0, delta=1e-6)
         # Reliability margin should accumulate positively (maximize term).
-        assert cumulative_components["reliability_margin"] > 0.0
+        self.assertGreater(cumulative_components["reliability_margin"], 0.0)
         # SetpointSmoothness should be > 0 (random actions churn).
-        assert cumulative_components["setpoint_smoothness"] > 0.0
+        self.assertGreater(cumulative_components["setpoint_smoothness"], 0.0)
         env.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

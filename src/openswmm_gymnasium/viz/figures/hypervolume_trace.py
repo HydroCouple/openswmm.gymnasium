@@ -1,9 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Caleb Buahin
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
-Normalised single-point hypervolume per episode.
+Normalized single-point hypervolume per episode.
 
 @author: Caleb Buahin
 @copyright: Copyright (c) 2026 Caleb Buahin
-@license: MIT
+@license: Apache-2.0
 """
 
 from __future__ import annotations
@@ -24,14 +40,14 @@ def hypervolume_trace(
     reference: Sequence[float],
     title: str = "Normalized hypervolume",
 ) -> go.Figure:
-    """Per-episode single-point normalised HV, in C{[0, 1]}.
+    """Per-episode single-point normalized HV, in C{[0, 1]}.
 
     Each episode contributes one point — its cumulative cost vector —
-    against the supplied C{ideal} and C{reference} for normalisation.
+    against the supplied C{ideal} and C{reference} for normalization.
 
     @param run: Multi-episode run.
     @type run: L{TrajectoryRun}
-    @param ideal: Per-objective best-case cost (minimisation).
+    @param ideal: Per-objective best-case cost (minimization).
     @type ideal: sequence of float
     @param reference: Per-objective nadir cost.
     @type reference: sequence of float
@@ -68,7 +84,7 @@ def hypervolume_trace(
     fig.update_layout(
         title=title,
         xaxis_title="episode",
-        yaxis_title="normalised HV",
+        yaxis_title="normalized HV",
         yaxis_range=[0.0, 1.0],
     )
     return fig

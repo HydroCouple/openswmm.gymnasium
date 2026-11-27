@@ -18,7 +18,7 @@ nd = pareto_front(points)  # (n, d) → non-dominated subset
 
 Exact closed-form for `d ≤ 2`; Monte Carlo for `d ≥ 3`. The
 {py:func}`~openswmm_gymnasium.scoring.normalized_hypervolume` helper
-normalises against `ideal` / `reference` so the result is in `[0, 1]`
+normalizes against `ideal` / `reference` so the result is in `[0, 1]`
 regardless of objective scale.
 
 ```python
@@ -45,7 +45,7 @@ idg_plus_val = igd_plus(approximation, true_front)
 
 - {py:func}`~openswmm_gymnasium.scoring.epsilon_indicator` — additive ε.
 - {py:func}`~openswmm_gymnasium.scoring.spread` — Schott's spacing
-  metric (stddev of nearest-neighbour distances).
+  metric (stddev of nearest-neighbor distances).
 - {py:func}`~openswmm_gymnasium.scoring.r2_indicator` — weighted
   Tchebycheff R2 over a set of reference weight vectors.
 
@@ -53,6 +53,6 @@ idg_plus_val = igd_plus(approximation, true_front)
 
 {py:class}`~openswmm_gymnasium.envs.SwmmMORTCEnv` populates
 `info["mo_score"]` at episode termination with the single-point
-normalised hypervolume of the episode's cumulative-cost vector against
+normalized hypervolume of the episode's cumulative-cost vector against
 the user-supplied `ideal_point` and `reference_point`. Useful as a
 training signal or for cross-policy comparison.

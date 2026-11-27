@@ -52,7 +52,7 @@ Append features from a user-supplied callable each step. See
 
 ### `RecordTrajectory`
 
-Write one JSONL file per episode for later visualisation / regression
+Write one JSONL file per episode for later visualization / regression
 testing.
 
 ```python
